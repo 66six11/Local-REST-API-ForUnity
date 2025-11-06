@@ -1,0 +1,459 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Net;
+using System.Reflection;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using UnityEditor;
+using UnityEngine;
+
+namespace LocalRestAPI
+{
+    public class ApiServer
+    {
+        private HttpListener httpListener;
+        private Thread listenerThread;
+        private bool isRunning = false;
+        private string accessToken;
+        private string serverUrl;
+        
+        // 存储API路由
+        private Dictionary<string, MethodInfo> routes = new Dictionary<string, MethodInfo>();
+        private Dictionary<string, Type> controllerTypes = new Dictionary<string, Type>();
+        
+        public ApiServer(string url, string token)
+        {
+            // 确保URL格式正确
+            serverUrl = url;
+            if (!serverUrl.EndsWith("/"))
+            {
+                serverUrl += "/";
+            }
+            
+            // 确保URL包含协议
+            if (!serverUrl.StartsWith("http://") && !serverUrl.StartsWith("https://"))
+            {
+                serverUrl = "http://" + serverUrl;
+            }
+            
+            accessToken = token;
+        }
+        
+        public void Start()
+        {
+            if (isRunning) return;
+            
+            try
+            {
+                RestApiMainWindow.Log($"正在启动API服务器，监听地址: {serverUrl}");
+                
+                httpListener = new HttpListener();
+                httpListener.Prefixes.Add(serverUrl);
+                httpListener.Start();
+                
+                isRunning = true;
+                
+                // 扫描并注册API控制器
+                RegisterApiControllers();
+                
+                // 启动监听线程
+                listenerThread = new Thread(ListenForRequests);
+                listenerThread.Start();
+                
+                RestApiMainWindow.Log($"API服务器已启动，监听地址: {serverUrl}");
+            }
+            catch (HttpListenerException httpEx)
+            {
+                RestApiMainWindow.Log($"启动API服务器失败 (HTTP错误): {httpEx.Message}");
+                RestApiMainWindow.Log("提示: 可能需要以管理员权限运行Unity，或者URL前缀格式不正确");
+                Stop();
+            }
+            catch (Exception ex)
+            {
+                RestApiMainWindow.Log($"启动API服务器失败: {ex.Message}");
+                Stop();
+            }
+        }
+        
+        public void Stop()
+        {
+            if (!isRunning) return;
+            
+            isRunning = false;
+            
+            if (httpListener != null)
+            {
+                httpListener.Stop();
+                httpListener.Close();
+                httpListener = null;
+            }
+            
+            if (listenerThread != null)
+            {
+                listenerThread.Join(1000); // 等待最多1秒
+                listenerThread = null;
+            }
+            
+            RestApiMainWindow.Log("API服务器已停止");
+        }
+        
+        private void ListenForRequests()
+        {
+            while (isRunning)
+            {
+                try
+                {
+                    var context = httpListener.GetContext();
+                    Task.Run(() => ProcessRequest(context));
+                }
+                catch (Exception ex)
+                {
+                    if (isRunning) // 如果服务器仍在运行，则记录错误
+                    {
+                        RestApiMainWindow.Log($"处理请求时出错: {ex.Message}");
+                    }
+                    break;
+                }
+            }
+        }
+        
+        private void ProcessRequest(HttpListenerContext context)
+        {
+            var request = context.Request;
+            var response = context.Response;
+            
+            DateTime startTime = DateTime.Now;
+            string method = request.HttpMethod;
+            string url = request.Url.ToString();
+            string clientIp = request.RemoteEndPoint?.ToString();
+            
+            // 记录请求开始
+            ApiLogger.Instance.LogRequest(method, url, clientIp, null, "");
+            
+            // 只记录我们自己的API端点的日志
+            bool isApiRequest = request.Url.AbsolutePath.StartsWith("/api/");
+            
+            try
+            {
+                // 验证访问令牌
+                if (!ValidateAccessToken(request))
+                {
+                    SendResponse(response, "Unauthorized", 401);
+                    // 不记录非API路径的性能指标
+                    if (isApiRequest)
+                    {
+                        ApiPerformanceMonitor.Instance.RecordApiCall(method, request.Url.AbsolutePath, 401, (DateTime.Now - startTime).TotalMilliseconds, clientIp);
+                    }
+                    return;
+                }
+                
+                // 处理API请求
+                HandleApiRequest(request, response);
+            }
+            catch (Exception ex)
+            {
+                // 只记录API请求的错误
+                if (isApiRequest)
+                {
+                    ApiLogger.Instance.LogError($"处理请求时出错: {ex.Message}", ex);
+                }
+                SendResponse(response, $"Internal Server Error: {ex.Message}", 500);
+            }
+            finally
+            {
+                DateTime endTime = DateTime.Now;
+                double duration = (endTime - startTime).TotalMilliseconds;
+                
+                // 只记录我们自己的API端点的性能指标
+                // 避免记录混合动作或其他插件的请求
+                if (isApiRequest)
+                {
+                    ApiPerformanceMonitor.Instance.RecordApiCall(method, request.Url.AbsolutePath, response.StatusCode, duration, clientIp);
+                }
+                
+                // 只记录API请求的响应
+                if (isApiRequest)
+                {
+                    ApiLogger.Instance.LogResponse("", response.StatusCode, null, "", duration);
+                }
+                
+                response.Close();
+            }
+        }
+        
+        private bool ValidateAccessToken(HttpListenerRequest request)
+        {
+            // 检查请求头中的访问令牌
+            string token = request.Headers["Authorization"];
+            if (string.IsNullOrEmpty(token))
+            {
+                // 检查查询参数中的访问令牌
+                token = request.QueryString["token"];
+            }
+            
+            if (string.IsNullOrEmpty(token))
+            {
+                return false;
+            }
+            
+            // 移除 "Bearer " 前缀（如果存在）
+            if (token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                token = token.Substring(7);
+            }
+            
+            return token == accessToken;
+        }
+        
+        private void HandleApiRequest(HttpListenerRequest request, HttpListenerResponse response)
+        {
+            string path = request.Url.AbsolutePath;
+            string method = request.HttpMethod;
+            
+            // 检查是否为内置路由
+            if (path == "/api/routes" && method == "GET")
+            {
+                HandleRoutesRequest(response);
+                return;
+            }
+            
+            // 查找匹配的API路由
+            string routeKey = $"{method} {path}";
+            if (routes.ContainsKey(routeKey))
+            {
+                var methodInfo = routes[routeKey];
+                
+                try
+                {
+                    // 获取参数
+                    var parameters = GetParametersFromRequest(request, methodInfo);
+                    
+                    // 调用控制器方法
+                    object controllerInstance = Activator.CreateInstance(controllerTypes[methodInfo.DeclaringType.FullName]);
+                    var result = methodInfo.Invoke(controllerInstance, parameters);
+                    
+                    // 发送响应
+                    string jsonResponse = JsonUtility.ToJson(result != null ? result : new { success = true });
+                    SendResponse(response, jsonResponse, 200, "application/json");
+                }
+                catch (Exception ex)
+                {
+                    RestApiMainWindow.Log($"调用API方法时出错: {ex.Message}");
+                    ApiLogger.Instance.LogError($"调用API方法时出错: {method} {path}", ex);
+                    SendResponse(response, $"Method execution error: {ex.Message}", 500);
+                }
+            }
+            else
+            {
+                SendResponse(response, "Not Found", 404);
+            }
+        }
+        
+        private void HandleRoutesRequest(HttpListenerResponse response)
+        {
+            var routeList = new List<RouteInfo>();
+            foreach (var route in routes)
+            {
+                var parts = route.Key.Split(' ');
+                routeList.Add(new RouteInfo
+                {
+                    method = parts[0],
+                    path = parts[1],
+                    handler = route.Value.DeclaringType.Name + "." + route.Value.Name
+                });
+            }
+            
+            string jsonResponse = JsonUtility.ToJson(new { routes = routeList });
+            SendResponse(response, jsonResponse, 200, "application/json");
+        }
+        
+        [Serializable]
+        private class RouteInfo
+        {
+            public string method;
+            public string path;
+            public string handler;
+        }
+        
+        private object[] GetParametersFromRequest(HttpListenerRequest request, MethodInfo methodInfo)
+        {
+            var parameters = methodInfo.GetParameters();
+            var parameterValues = new object[parameters.Length];
+            
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                var param = parameters[i];
+                string paramValue = null;
+                
+                // 首先从查询字符串中查找
+                if (request.QueryString[param.Name] != null)
+                {
+                    paramValue = request.QueryString[param.Name];
+                }
+                // 然后尝试从POST数据中查找
+                else if (request.HttpMethod == "POST" && request.ContentLength64 > 0)
+                {
+                    using (var reader = new StreamReader(request.InputStream))
+                    {
+                        string body = reader.ReadToEnd();
+                        // 简单的JSON解析，实际项目中应该使用更健壮的JSON库
+                        // 这里我们只处理简单的键值对
+                        if (body.Contains("{"))
+                        {
+                            // TODO: 实现更完整的JSON参数解析
+                        }
+                    }
+                }
+                
+                // 转换参数类型
+                if (paramValue != null)
+                {
+                    if (param.ParameterType == typeof(string))
+                    {
+                        parameterValues[i] = paramValue;
+                    }
+                    else if (param.ParameterType == typeof(int))
+                    {
+                        parameterValues[i] = int.Parse(paramValue);
+                    }
+                    else if (param.ParameterType == typeof(float))
+                    {
+                        parameterValues[i] = float.Parse(paramValue);
+                    }
+                    else if (param.ParameterType == typeof(bool))
+                    {
+                        parameterValues[i] = bool.Parse(paramValue);
+                    }
+                    else
+                    {
+                        // 对于复杂类型，我们暂时只支持基本类型
+                        parameterValues[i] = paramValue;
+                    }
+                }
+                else
+                {
+                    // 如果没有找到参数值，使用默认值
+                    parameterValues[i] = param.DefaultValue ?? GetDefault(param.ParameterType);
+                }
+            }
+            
+            return parameterValues;
+        }
+        
+        private object GetDefault(Type type)
+        {
+            if (type.IsValueType)
+            {
+                return Activator.CreateInstance(type);
+            }
+            return null;
+        }
+        
+        private void SendResponse(HttpListenerResponse response, string content, int statusCode, string contentType = "text/plain")
+        {
+            response.StatusCode = statusCode;
+            response.ContentType = contentType;
+            
+            byte[] buffer = Encoding.UTF8.GetBytes(content);
+            response.ContentLength64 = buffer.Length;
+            
+            response.OutputStream.Write(buffer, 0, buffer.Length);
+        }
+        
+        public Dictionary<string, MethodInfo> GetRoutes()
+        {
+            return new Dictionary<string, MethodInfo>(routes);
+        }
+        
+        public Dictionary<string, (MethodInfo methodInfo, Type controllerType)> GetDetailedRoutes()
+        {
+            var detailedRoutes = new Dictionary<string, (MethodInfo, Type)>();
+            foreach (var route in routes)
+            {
+                if (controllerTypes.ContainsKey(route.Value.DeclaringType.FullName))
+                {
+                    detailedRoutes[route.Key] = (route.Value, controllerTypes[route.Value.DeclaringType.FullName]);
+                }
+            }
+            return detailedRoutes;
+        }
+        
+        private void RegisterApiControllers()
+        {
+            routes.Clear();
+            controllerTypes.Clear();
+            
+            // 查找所有标记了ApiRouteAttribute的类和方法
+            var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+            foreach (var assembly in assemblies)
+            {
+                try
+                {
+                    foreach (var type in assembly.GetTypes())
+                    {
+                        if (type.Namespace != null && type.Namespace.StartsWith("LocalRestAPI"))
+                        {
+                            // 检查类中的所有方法
+                            foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+                            {
+                                var routeAttr = method.GetCustomAttribute<ApiRouteAttribute>();
+                                if (routeAttr != null)
+                                {
+                                    string routeKey = $"{routeAttr.Method} {routeAttr.Path}";
+                                    
+                                    // 注册路由
+                                    routes[routeKey] = method;
+                                    controllerTypes[type.FullName] = type;
+                                    
+                                    RestApiMainWindow.Log($"注册API路由: {routeKey} -> {type.Name}.{method.Name}");
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (ReflectionTypeLoadException)
+                {
+                    // 忽略无法加载类型的程序集
+                }
+            }
+            
+            // 注册内置路由
+            RestApiMainWindow.Log($"已注册 {routes.Count} 个API路由");
+        }
+        
+        public bool IsRunning()
+        {
+            return isRunning;
+        }
+    }
+    
+    // API路由属性
+    [AttributeUsage(AttributeTargets.Method)]
+    public class ApiRouteAttribute : Attribute
+    {
+        public string Method { get; set; }
+        public string Path { get; set; }
+        
+        public ApiRouteAttribute(string method, string path)
+        {
+            Method = method.ToUpper();
+            Path = path;
+        }
+    }
+    
+    // GET请求属性
+    [AttributeUsage(AttributeTargets.Method)]
+    public class GetRouteAttribute : ApiRouteAttribute
+    {
+        public GetRouteAttribute(string path) : base("GET", path) { }
+    }
+    
+    // POST请求属性
+    [AttributeUsage(AttributeTargets.Method)]
+    public class PostRouteAttribute : ApiRouteAttribute
+    {
+        public PostRouteAttribute(string path) : base("POST", path) { }
+    }
+}
