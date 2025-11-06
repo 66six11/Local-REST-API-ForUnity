@@ -11,7 +11,6 @@ namespace LocalRestAPI
         [GetRoute("/api/sample/hello")]
         public HelloResponse Hello(string name = "World")
         {
-            Debug.Log($"请求了 /api/sample/hello");
             return new HelloResponse
             {
                 message = $"Hello, {name}!",

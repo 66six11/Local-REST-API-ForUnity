@@ -16,7 +16,7 @@ namespace LocalRestAPI
         // 服务状态
         private bool isServiceRunning = false;
         private string serviceStatus = "未启动";
-        private string serverUrl = "http://localhost:8080/";
+        private string serverUrl = "http://localhost:8080";
 
         // 日志相关
         private Vector2 logScrollPosition;
@@ -34,6 +34,7 @@ namespace LocalRestAPI
 
         // 访问令牌
         private string accessToken = "";
+        private bool showToken = false;
 
         [MenuItem("Tools/Local REST API/主控制台")]
         public static void ShowWindow()
@@ -44,11 +45,8 @@ namespace LocalRestAPI
 
         private void OnEnable()
         {
-            // 只在访问令牌为空时初始化
-            if (string.IsNullOrEmpty(accessToken))
-            {
-                accessToken = Guid.NewGuid().ToString("N");
-            }
+            // 初始化访问令牌
+            accessToken = Guid.NewGuid().ToString("N");
 
             // 注册日志回调
             Application.logMessageReceived += HandleLog;
@@ -123,15 +121,7 @@ namespace LocalRestAPI
 
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.PrefixLabel("服务地址");
-            if (!isServiceRunning)
-            {
-                serverUrl = EditorGUILayout.TextField(serverUrl);
-            }
-            else
-            {
-                EditorGUILayout.SelectableLabel(serverUrl, GUILayout.Height(EditorGUIUtility.singleLineHeight));
-            }
-
+            EditorGUILayout.SelectableLabel(serverUrl, GUILayout.Height(EditorGUIUtility.singleLineHeight));
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.BeginHorizontal();
@@ -159,24 +149,18 @@ namespace LocalRestAPI
             GUILayout.Label("访问令牌", EditorStyles.boldLabel);
 
             EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.PrefixLabel("访问令牌");
+            EditorGUILayout.PrefixLabel("令牌");
+
             accessToken = EditorGUILayout.TextField(accessToken);
+
+
             EditorGUILayout.EndHorizontal();
 
-            EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button("重新生成令牌"))
             {
                 accessToken = Guid.NewGuid().ToString("N");
                 AddLog("访问令牌已重新生成");
             }
-
-            if (GUILayout.Button("复制令牌"))
-            {
-                EditorGUIUtility.systemCopyBuffer = accessToken;
-                AddLog("访问令牌已复制到剪贴板");
-            }
-
-            EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.EndVertical();
             EditorGUILayout.Space();
@@ -276,8 +260,7 @@ namespace LocalRestAPI
 
             foreach (var log in logs)
             {
-                // 使用可选择的文本字段显示日志，使用户可以复制
-                EditorGUILayout.SelectableLabel(log, EditorStyles.textField, GUILayout.Height(EditorGUIUtility.singleLineHeight));
+                EditorGUILayout.LabelField(log);
             }
 
             EditorGUILayout.EndScrollView();
@@ -293,11 +276,6 @@ namespace LocalRestAPI
                 ExportLogs();
             }
 
-            if (GUILayout.Button("复制日志"))
-            {
-                CopyLogsToClipboard();
-            }
-
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.EndVertical();
@@ -307,18 +285,6 @@ namespace LocalRestAPI
         {
             try
             {
-                // 确保URL以斜杠结尾
-                if (!serverUrl.EndsWith("/"))
-                {
-                    serverUrl += "/";
-                }
-
-                // 确保URL格式正确
-                if (!serverUrl.StartsWith("http://") && !serverUrl.StartsWith("https://"))
-                {
-                    serverUrl = "http://" + serverUrl;
-                }
-
                 if (apiServer == null)
                 {
                     apiServer = new ApiServer(serverUrl, accessToken);
@@ -376,11 +342,11 @@ namespace LocalRestAPI
 
             if (apiServer != null)
             {
-                var routes = apiServer.GetDetailedRoutes();
+                var routes = apiServer.GetRoutes();
                 foreach (var route in routes)
                 {
                     var parts = route.Key.Split(' ');
-                    registeredRoutes.Add($"{parts[0]} {parts[1]} - {route.Value.methodInfo.DeclaringType.Name}.{route.Value.methodInfo.Name}");
+                    registeredRoutes.Add($"{parts[0]} {parts[1]} - {route.Value.DeclaringType.Name}.{route.Value.Name}");
                 }
 
                 AddLog($"路由列表已刷新，共 {routes.Count} 个路由");
@@ -420,15 +386,30 @@ namespace LocalRestAPI
                 var scriptGUIDs = AssetDatabase.FindAssets($"{className} t:Script");
                 if (scriptGUIDs.Length > 0)
                 {
-                    var path = AssetDatabase.GUIDToAssetPath(scriptGUIDs[0]);
-                    var script = AssetDatabase.LoadAssetAtPath<MonoScript>(path);
+                    var scriptPath = AssetDatabase.GUIDToAssetPath(scriptGUIDs[0]);
+                    var script = AssetDatabase.LoadAssetAtPath<MonoScript>(scriptPath);
 
                     if (script != null)
                     {
                         // 打开脚本并跳转到方法
-                        EditorGUIUtility.PingObject(script);
-                        Selection.activeObject = script;
-                        AssetDatabase.OpenAsset(script);
+                        var scriptObj = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(scriptPath);
+                        EditorGUIUtility.PingObject(scriptObj);
+                        Selection.activeObject = scriptObj;
+
+                        // 尝试跳转到具体方法（需要使用反射获取行号）
+                        var scriptText = script.text;
+                        var lines = scriptText.Split('\n');
+
+                        for (int i = 0; i < lines.Length; i++)
+                        {
+                            if (lines[i].Contains($"public") && lines[i].Contains(methodName))
+                            {
+                                // 找到方法定义行
+                                var methodLine = i + 1;
+                                AssetDatabase.OpenAsset(script, methodLine);
+                                break;
+                            }
+                        }
                     }
                 }
                 else
@@ -444,44 +425,8 @@ namespace LocalRestAPI
 
         private void ExportLogs()
         {
-            try
-            {
-                string path = EditorUtility.SaveFilePanel("导出日志", "", "api-logs.txt", "txt");
-                if (!string.IsNullOrEmpty(path))
-                {
-                    System.Text.StringBuilder sb = new System.Text.StringBuilder();
-                    foreach (var log in logs)
-                    {
-                        sb.AppendLine(log);
-                    }
-
-                    System.IO.File.WriteAllText(path, sb.ToString());
-                    AddLog($"日志已导出到: {path}");
-                }
-            }
-            catch (System.Exception ex)
-            {
-                AddLog($"导出日志失败: {ex.Message}");
-            }
-        }
-
-        private void CopyLogsToClipboard()
-        {
-            try
-            {
-                System.Text.StringBuilder sb = new System.Text.StringBuilder();
-                foreach (var log in logs)
-                {
-                    sb.AppendLine(log);
-                }
-
-                EditorGUIUtility.systemCopyBuffer = sb.ToString();
-                AddLog("日志已复制到剪贴板");
-            }
-            catch (System.Exception ex)
-            {
-                AddLog($"复制日志失败: {ex.Message}");
-            }
+            // 导出日志的逻辑
+            AddLog("日志导出功能待实现");
         }
 
         private void AddLog(string message)
@@ -521,24 +466,6 @@ namespace LocalRestAPI
         public static bool IsServiceRunning()
         {
             return window?.isServiceRunning ?? false;
-        }
-
-        public static bool HasWindowInstance()
-        {
-            return window != null;
-        }
-
-        public static bool HasApiServerInstance()
-
-        {
-            return window?.apiServer != null;
-        }
-
-
-        public static ApiServer GetApiServerInstance()
-
-        {
-            return window?.apiServer;
         }
     }
 }

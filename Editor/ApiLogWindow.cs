@@ -118,27 +118,27 @@ namespace LocalRestAPI
             
             // 基本信息行
             EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.SelectableLabel($"[{log.Timestamp:HH:mm:ss.fff}]", EditorStyles.textField, GUILayout.Width(100), GUILayout.Height(EditorGUIUtility.singleLineHeight));
-            EditorGUILayout.SelectableLabel(log.Type, EditorStyles.textField, GUILayout.Width(80), GUILayout.Height(EditorGUIUtility.singleLineHeight));
+            GUILayout.Label($"[{log.Timestamp:HH:mm:ss.fff}]", GUILayout.Width(100));
+            GUILayout.Label(log.Type, GUILayout.Width(80));
             
             if (!string.IsNullOrEmpty(log.Method))
             {
-                EditorGUILayout.SelectableLabel(log.Method, EditorStyles.textField, GUILayout.Width(60), GUILayout.Height(EditorGUIUtility.singleLineHeight));
+                GUILayout.Label(log.Method, GUILayout.Width(60));
             }
             
             if (!string.IsNullOrEmpty(log.Url))
             {
-                EditorGUILayout.SelectableLabel(log.Url, EditorStyles.textField, GUILayout.ExpandWidth(true), GUILayout.Height(EditorGUIUtility.singleLineHeight));
+                GUILayout.Label(log.Url, GUILayout.ExpandWidth(true));
             }
             
             if (log.StatusCode != 0)
             {
-                EditorGUILayout.SelectableLabel(log.StatusCode.ToString(), EditorStyles.textField, GUILayout.Width(40), GUILayout.Height(EditorGUIUtility.singleLineHeight));
+                GUILayout.Label(log.StatusCode.ToString(), GUILayout.Width(40));
             }
             
             if (log.DurationMs > 0)
             {
-                EditorGUILayout.SelectableLabel($"{log.DurationMs:F1}ms", EditorStyles.textField, GUILayout.Width(70), GUILayout.Height(EditorGUIUtility.singleLineHeight));
+                GUILayout.Label($"{log.DurationMs:F1}ms", GUILayout.Width(70));
             }
             
             EditorGUILayout.EndHorizontal();
@@ -146,17 +146,17 @@ namespace LocalRestAPI
             // 详细信息
             if (!string.IsNullOrEmpty(log.Message))
             {
-                EditorGUILayout.SelectableLabel("Message: " + log.Message, EditorStyles.textField, GUILayout.Height(EditorGUIUtility.singleLineHeight * (log.Message.Length / 50 + 1)));
+                EditorGUILayout.LabelField("Message: " + log.Message);
             }
             
             if (!string.IsNullOrEmpty(log.Exception))
             {
-                EditorGUILayout.SelectableLabel("Exception: " + log.Exception, EditorStyles.textField, GUILayout.Height(EditorGUIUtility.singleLineHeight * (log.Exception.Length / 50 + 1)));
+                EditorGUILayout.LabelField("Exception: " + log.Exception);
             }
             
             if (!string.IsNullOrEmpty(log.Body))
             {
-                EditorGUILayout.SelectableLabel("Body: " + log.Body, EditorStyles.textField, GUILayout.Height(EditorGUIUtility.singleLineHeight * (log.Body.Length / 50 + 1)));
+                EditorGUILayout.LabelField("Body: " + log.Body);
             }
             
             EditorGUILayout.EndVertical();
@@ -226,8 +226,6 @@ namespace LocalRestAPI
                 sb.AppendLine($"[{log.Timestamp:yyyy-MM-dd HH:mm:ss}] {log.Type} - {log.Method} {log.Url} - {log.StatusCode}");
                 if (!string.IsNullOrEmpty(log.Message))
                     sb.AppendLine($"Message: {log.Message}");
-                if (!string.IsNullOrEmpty(log.Exception))
-                    sb.AppendLine($"Exception: {log.Exception}");
                 if (!string.IsNullOrEmpty(log.Body))
                     sb.AppendLine($"Body: {log.Body}");
                 sb.AppendLine("---");

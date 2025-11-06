@@ -42,26 +42,23 @@ namespace LocalRestAPI
         
         public void RecordApiCall(string method, string path, int statusCode, double durationMs, string clientIp = "")
         {
-            // 只记录Local REST API服务的API端点请求
-            if (path.StartsWith("/api/")) {
-                var metric = new ApiCallMetric
-                {
-                    Id = Guid.NewGuid().ToString(),
-                    Timestamp = DateTime.Now,
-                    Method = method,
-                    Path = path,
-                    StatusCode = statusCode,
-                    DurationMs = durationMs,
-                    ClientIp = clientIp
-                };
-                
-                recentCalls.Add(metric);
-                
-                // 限制指标数量
-                if (recentCalls.Count > maxMetrics)
-                {
-                    recentCalls.RemoveAt(0);
-                }
+            var metric = new ApiCallMetric
+            {
+                Id = Guid.NewGuid().ToString(),
+                Timestamp = DateTime.Now,
+                Method = method,
+                Path = path,
+                StatusCode = statusCode,
+                DurationMs = durationMs,
+                ClientIp = clientIp
+            };
+            
+            recentCalls.Add(metric);
+            
+            // 限制指标数量
+            if (recentCalls.Count > maxMetrics)
+            {
+                recentCalls.RemoveAt(0);
             }
         }
         

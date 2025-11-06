@@ -25,19 +25,7 @@ namespace LocalRestAPI
         
         public ApiServer(string url, string token)
         {
-            // 确保URL格式正确
             serverUrl = url;
-            if (!serverUrl.EndsWith("/"))
-            {
-                serverUrl += "/";
-            }
-            
-            // 确保URL包含协议
-            if (!serverUrl.StartsWith("http://") && !serverUrl.StartsWith("https://"))
-            {
-                serverUrl = "http://" + serverUrl;
-            }
-            
             accessToken = token;
         }
         
@@ -47,8 +35,6 @@ namespace LocalRestAPI
             
             try
             {
-                RestApiMainWindow.Log($"正在启动API服务器，监听地址: {serverUrl}");
-                
                 httpListener = new HttpListener();
                 httpListener.Prefixes.Add(serverUrl);
                 httpListener.Start();
@@ -63,12 +49,6 @@ namespace LocalRestAPI
                 listenerThread.Start();
                 
                 RestApiMainWindow.Log($"API服务器已启动，监听地址: {serverUrl}");
-            }
-            catch (HttpListenerException httpEx)
-            {
-                RestApiMainWindow.Log($"启动API服务器失败 (HTTP错误): {httpEx.Message}");
-                RestApiMainWindow.Log("提示: 可能需要以管理员权限运行Unity，或者URL前缀格式不正确");
-                Stop();
             }
             catch (Exception ex)
             {
@@ -132,20 +112,13 @@ namespace LocalRestAPI
             // 记录请求开始
             ApiLogger.Instance.LogRequest(method, url, clientIp, null, "");
             
-            // 只记录我们自己的API端点的日志
-            bool isApiRequest = request.Url.AbsolutePath.StartsWith("/api/");
-            
             try
             {
                 // 验证访问令牌
                 if (!ValidateAccessToken(request))
                 {
                     SendResponse(response, "Unauthorized", 401);
-                    // 不记录非API路径的性能指标
-                    if (isApiRequest)
-                    {
-                        ApiPerformanceMonitor.Instance.RecordApiCall(method, request.Url.AbsolutePath, 401, (DateTime.Now - startTime).TotalMilliseconds, clientIp);
-                    }
+                    ApiPerformanceMonitor.Instance.RecordApiCall(method, request.Url.AbsolutePath, 401, (DateTime.Now - startTime).TotalMilliseconds, clientIp);
                     return;
                 }
                 
@@ -154,11 +127,7 @@ namespace LocalRestAPI
             }
             catch (Exception ex)
             {
-                // 只记录API请求的错误
-                if (isApiRequest)
-                {
-                    ApiLogger.Instance.LogError($"处理请求时出错: {ex.Message}", ex);
-                }
+                ApiLogger.Instance.LogError($"处理请求时出错: {ex.Message}", ex);
                 SendResponse(response, $"Internal Server Error: {ex.Message}", 500);
             }
             finally
@@ -166,18 +135,11 @@ namespace LocalRestAPI
                 DateTime endTime = DateTime.Now;
                 double duration = (endTime - startTime).TotalMilliseconds;
                 
-                // 只记录我们自己的API端点的性能指标
-                // 避免记录混合动作或其他插件的请求
-                if (isApiRequest)
-                {
-                    ApiPerformanceMonitor.Instance.RecordApiCall(method, request.Url.AbsolutePath, response.StatusCode, duration, clientIp);
-                }
+                // 记录性能指标
+                ApiPerformanceMonitor.Instance.RecordApiCall(method, request.Url.AbsolutePath, response.StatusCode, duration, clientIp);
                 
-                // 只记录API请求的响应
-                if (isApiRequest)
-                {
-                    ApiLogger.Instance.LogResponse("", response.StatusCode, null, "", duration);
-                }
+                // 记录请求完成
+                ApiLogger.Instance.LogResponse("", response.StatusCode, null, "", duration);
                 
                 response.Close();
             }
@@ -365,19 +327,6 @@ namespace LocalRestAPI
         public Dictionary<string, MethodInfo> GetRoutes()
         {
             return new Dictionary<string, MethodInfo>(routes);
-        }
-        
-        public Dictionary<string, (MethodInfo methodInfo, Type controllerType)> GetDetailedRoutes()
-        {
-            var detailedRoutes = new Dictionary<string, (MethodInfo, Type)>();
-            foreach (var route in routes)
-            {
-                if (controllerTypes.ContainsKey(route.Value.DeclaringType.FullName))
-                {
-                    detailedRoutes[route.Key] = (route.Value, controllerTypes[route.Value.DeclaringType.FullName]);
-                }
-            }
-            return detailedRoutes;
         }
         
         private void RegisterApiControllers()
