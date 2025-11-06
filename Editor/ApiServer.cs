@@ -35,8 +35,42 @@ namespace LocalRestAPI
             
             try
             {
+                // 验证URL格式
+                if (!IsValidUrl(serverUrl))
+                {
+                    RestApiMainWindow.Log($"无效的服务器URL格式: {serverUrl}");
+                    return;
+                }
+                
+                // 检查端口是否可用
+                try
+                {
+                    var uri = new Uri(serverUrl);
+                    if (!PortChecker.IsPortAvailable(uri.Port))
+                    {
+                        RestApiMainWindow.Log($"警告: 端口 {uri.Port} 当前可能已被其他进程占用。这可能是启动失败的原因。");
+                    }
+                }
+                catch (Exception)
+                {
+                    // 如果无法解析URL或检查端口，继续启动尝试
+                }
+                
                 httpListener = new HttpListener();
-                httpListener.Prefixes.Add(serverUrl);
+                
+                // 添加URL前缀
+                try
+                {
+                    httpListener.Prefixes.Add(serverUrl);
+                }
+                catch (ArgumentException ex)
+                {
+                    RestApiMainWindow.Log($"无效的URL前缀: {ex.Message}. 请确保URL以/结尾，例如: http://localhost:8080/");
+                    Stop();
+                    return;
+                }
+                
+                // 尝试启动HTTP监听器
                 httpListener.Start();
                 
                 isRunning = true;
@@ -50,9 +84,25 @@ namespace LocalRestAPI
                 
                 RestApiMainWindow.Log($"API服务器已启动，监听地址: {serverUrl}");
             }
+            catch (HttpListenerException ex)
+            {
+                string errorMessage = GetHttpListenerErrorMessage(ex);
+                RestApiMainWindow.Log($"启动API服务器失败: {errorMessage}");
+                Stop();
+            }
+            catch (PlatformNotSupportedException)
+            {
+                RestApiMainWindow.Log("启动API服务器失败: 当前平台不支持HttpListener。请确保您使用的是支持的.NET平台。");
+                Stop();
+            }
+            catch (ObjectDisposedException)
+            {
+                RestApiMainWindow.Log("启动API服务器失败: HttpListener已被释放。");
+                Stop();
+            }
             catch (Exception ex)
             {
-                RestApiMainWindow.Log($"启动API服务器失败: {ex.Message}");
+                RestApiMainWindow.Log($"启动API服务器失败: {ex.Message} (类型: {ex.GetType().Name})");
                 Stop();
             }
         }
@@ -395,36 +445,127 @@ namespace LocalRestAPI
         }
         
         public bool IsRunning()
+
         {
+
             return isRunning;
+
         }
-    }
-    
-    // API路由属性
-    [AttributeUsage(AttributeTargets.Method)]
-    public class ApiRouteAttribute : Attribute
-    {
-        public string Method { get; set; }
-        public string Path { get; set; }
+
         
-        public ApiRouteAttribute(string method, string path)
+
+        private bool IsValidUrl(string url)
+
         {
-            Method = method.ToUpper();
-            Path = path;
+
+            try
+
+            {
+
+                var uri = new Uri(url);
+
+                return uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps;
+
+            }
+
+            catch
+
+            {
+
+                return false;
+
+            }
+
         }
+
+        
+
+        private string GetHttpListenerErrorMessage(HttpListenerException ex)
+
+        {
+
+            switch (ex.ErrorCode)
+
+            {
+
+                case 5: // ERROR_ACCESS_DENIED
+
+                    return "访问被拒绝。可能需要管理员权限，或URL保留已由其他进程占用。错误代码: 5";
+
+                case 183: // ERROR_ALREADY_EXISTS
+
+                    return "URL前缀已被其他进程保留。请尝试更改端口或检查是否有其他实例正在运行。错误代码: 183";
+
+                case 32: // ERROR_SHARING_VIOLATION
+
+                    return "端口被占用。另一个应用程序可能正在使用相同的端口。错误代码: 32";
+
+                default:
+
+                    return $"HTTP监听器错误 (错误代码: {ex.ErrorCode}): {ex.Message}。" +
+
+                          "请确保您使用正确的端口，没有其他实例在运行，并且有足够的权限。";
+
+            }
+
+        }
+
     }
+
     
+
+    // API路由属性
+
+    [AttributeUsage(AttributeTargets.Method)]
+
+    public class ApiRouteAttribute : Attribute
+
+    {
+
+        public string Method { get; set; }
+
+        public string Path { get; set; }
+
+        
+
+        public ApiRouteAttribute(string method, string path)
+
+        {
+
+            Method = method.ToUpper();
+
+            Path = path;
+
+        }
+
+    }
+
+    
+
     // GET请求属性
+
     [AttributeUsage(AttributeTargets.Method)]
+
     public class GetRouteAttribute : ApiRouteAttribute
+
     {
+
         public GetRouteAttribute(string path) : base("GET", path) { }
+
     }
+
     
+
     // POST请求属性
+
     [AttributeUsage(AttributeTargets.Method)]
+
     public class PostRouteAttribute : ApiRouteAttribute
+
     {
+
         public PostRouteAttribute(string path) : base("POST", path) { }
+
     }
+
 }

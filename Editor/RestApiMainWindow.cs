@@ -272,11 +272,11 @@ namespace LocalRestAPI
             EditorGUILayout.BeginVertical(GUI.skin.box);
             GUILayout.Label("服务日志", EditorStyles.boldLabel);
 
-            logScrollPosition = EditorGUILayout.BeginScrollView(logScrollPosition, GUILayout.Height(150));
+            logScrollPosition = EditorGUILayout.BeginScrollView(logScrollPosition, GUILayout.Height(0), GUILayout.MinHeight(150));
 
             foreach (var log in logs)
             {
-                EditorGUILayout.LabelField(log);
+                EditorGUILayout.SelectableLabel(log, GUILayout.Height(15));
             }
 
             EditorGUILayout.EndScrollView();
