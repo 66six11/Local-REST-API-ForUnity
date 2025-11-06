@@ -266,19 +266,7 @@ namespace LocalRestAPI
             {
                 RefreshRouteList();
             }
-
-            if (GUILayout.Button("跳转到API服务器"))
-            {
-                // 跳转到API服务器代码
-                var serverScript = AssetDatabase.FindAssets("ApiServer t:Script");
-                if (serverScript.Length > 0)
-                {
-                    var path = AssetDatabase.GUIDToAssetPath(serverScript[0]);
-                    var obj = AssetDatabase.LoadAssetAtPath<MonoScript>(path);
-                    EditorGUIUtility.PingObject(obj);
-                    Selection.activeObject = obj;
-                }
-            }
+            
 
             EditorGUILayout.EndHorizontal();
 
