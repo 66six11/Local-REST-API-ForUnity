@@ -34,8 +34,7 @@ namespace LocalRestAPI
 
         // 访问令牌
         private string accessToken = "";
-        private bool showToken = false;
-        
+
         // 配置
         private ApiConfig config;
 
@@ -136,6 +135,7 @@ namespace LocalRestAPI
                     config.Save();
                 }
             }
+
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.BeginHorizontal();
@@ -222,15 +222,34 @@ namespace LocalRestAPI
                 for (int i = 0; i < registeredRoutes.Count; i++)
                 {
                     var route = registeredRoutes[i];
-                    var routeContent = new GUIContent(route);
-
+                    
+                    // 解析路由信息 "GET /api/sample/hello ———— SampleController.Hello"
+                    var parts = route.Split(new string[] { " ———— " }, StringSplitOptions.None);
+                    string leftPart = parts.Length > 0 ? parts[0] : "";
+                    string rightPart = parts.Length > 1 ? parts[1] : "";
+                    
+                    // 创建左右对齐的显示
+                    GUIStyle leftStyle = new GUIStyle(EditorStyles.label);
+                    leftStyle.alignment = TextAnchor.MiddleLeft;
+                    leftStyle.normal.textColor = Color.white;
+                    GUIStyle rightStyle = new GUIStyle(EditorStyles.label);
+                    rightStyle.alignment = TextAnchor.MiddleRight;
+                    rightStyle.normal.textColor = Color.gray;
+                    
                     // 检查是否鼠标悬停在该路由上
                     var rect = EditorGUILayout.GetControlRect();
-                    if (GUI.Button(rect, routeContent, GUIStyle.none))
+                    if (GUI.Button(rect, "", GUIStyle.none))
                     {
                         // 解析路由信息并尝试打开对应的代码文件
                         OpenRouteCode(registeredRoutes[i]);
                     }
+                    
+                    // 绘制左右对齐的文本
+                    var leftRect = new Rect(rect.x, rect.y, rect.width * 0.6f, rect.height);
+                    var rightRect = new Rect(rect.x + rect.width * 0.6f, rect.y, rect.width * 0.4f, rect.height);
+                    
+                    EditorGUI.LabelField(leftRect, leftPart, leftStyle);
+                    EditorGUI.LabelField(rightRect, rightPart, rightStyle);
 
                     // 如果鼠标悬停，显示手型光标
                     if (rect.Contains(Event.current.mousePosition))
@@ -367,7 +386,7 @@ namespace LocalRestAPI
                 foreach (var route in routes)
                 {
                     var parts = route.Key.Split(' ');
-                    registeredRoutes.Add($"{parts[0]} {parts[1]} - {route.Value.DeclaringType.Name}.{route.Value.Name}");
+                    registeredRoutes.Add($"{parts[0]} {parts[1]} ———— {route.Value.DeclaringType.Name}.{route.Value.Name}");
                 }
 
                 AddLog($"路由列表已刷新，共 {routes.Count} 个路由");
@@ -375,14 +394,14 @@ namespace LocalRestAPI
             else
             {
                 // 如果服务未启动，显示示例路由
-                registeredRoutes.Add("GET /api/sample/hello - SampleController.Hello");
-                registeredRoutes.Add("POST /api/sample/echo - SampleController.Echo");
-                registeredRoutes.Add("GET /api/sample/random - SampleController.GetRandom");
-                registeredRoutes.Add("GET /api/sample/status - SampleController.GetStatus");
-                registeredRoutes.Add("GET /api/unity/scene - UnityController.GetActiveScene");
-                registeredRoutes.Add("GET /api/unity/objects - UnityController.GetObjectsInScene");
-                registeredRoutes.Add("POST /api/unity/log - UnityController.LogMessage");
-                registeredRoutes.Add("GET /api/routes - 内置路由");
+                registeredRoutes.Add("GET /api/sample/hello ———— SampleController.Hello");
+                registeredRoutes.Add("POST /api/sample/echo ———— SampleController.Echo");
+                registeredRoutes.Add("GET /api/sample/random ———— SampleController.GetRandom");
+                registeredRoutes.Add("GET /api/sample/status ———— SampleController.GetStatus");
+                registeredRoutes.Add("GET /api/unity/scene ———— UnityController.GetActiveScene");
+                registeredRoutes.Add("GET /api/unity/objects ———— UnityController.GetObjectsInScene");
+                registeredRoutes.Add("POST /api/unity/log ———— UnityController.LogMessage");
+                registeredRoutes.Add("GET /api/routes ———— 内置路由");
 
                 AddLog("显示示例路由列表");
             }
@@ -393,7 +412,7 @@ namespace LocalRestAPI
             try
             {
                 // 解析路由信息 "GET /api/sample/hello - SampleController.Hello"
-                var parts = routeInfo.Split(new string[] { " - " }, StringSplitOptions.None);
+                var parts = routeInfo.Split(new string[] { " ———— " }, StringSplitOptions.None);
                 if (parts.Length < 2) return;
 
                 var handler = parts[1]; // "SampleController.Hello"
@@ -403,45 +422,108 @@ namespace LocalRestAPI
                 var className = handlerParts[0];  // "SampleController"
                 var methodName = handlerParts[1]; // "Hello"
 
-                // 查找对应的脚本文件
+                // 首先尝试使用类名精确查找脚本文件
                 var scriptGUIDs = AssetDatabase.FindAssets($"{className} t:Script");
-                if (scriptGUIDs.Length > 0)
+
+                // 如果没有找到，尝试更宽泛的搜索（文件名可能与类名不匹配）
+                if (scriptGUIDs.Length == 0)
                 {
-                    var scriptPath = AssetDatabase.GUIDToAssetPath(scriptGUIDs[0]);
-                    var script = AssetDatabase.LoadAssetAtPath<MonoScript>(scriptPath);
-
-                    if (script != null)
+                    // 在LocalRestAPI命名空间下搜索包含该类的脚本
+                    var allScripts = AssetDatabase.FindAssets("t:Script");
+                    foreach (var guid in allScripts)
                     {
-                        // 打开脚本并跳转到方法
-                        var scriptObj = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(scriptPath);
-                        EditorGUIUtility.PingObject(scriptObj);
-                        Selection.activeObject = scriptObj;
+                        var path = AssetDatabase.GUIDToAssetPath(guid);
+                        var scriptAsset = AssetDatabase.LoadAssetAtPath<MonoScript>(path);
 
-                        // 尝试跳转到具体方法（需要使用反射获取行号）
-                        var scriptText = script.text;
-                        var lines = scriptText.Split('\n');
-
-                        for (int i = 0; i < lines.Length; i++)
+                        // 检查是否是LocalRestAPI命名空间下的脚本，并且包含目标类
+                        if (scriptAsset != null &&
+                            (path.Contains("LocalRestAPI") || path.Contains("LocalRestAPI")) &&
+                            scriptAsset.text.Contains($"class {className}") &&
+                            scriptAsset.text.Contains(methodName))
                         {
-                            if (lines[i].Contains($"public") && lines[i].Contains(methodName))
+                            // 找到脚本，尝试跳转到方法
+                            var scriptText = scriptAsset.text;
+                            var lines = scriptText.Split('\n');
+
+                            // 使用更精确的正则表达式查找方法定义
+                            for (int i = 0; i < lines.Length; i++)
                             {
-                                // 找到方法定义行
-                                var methodLine = i + 1;
-                                AssetDatabase.OpenAsset(script, methodLine);
-                                break;
+                                var line = lines[i].Trim();
+                                // 检查是否是方法定义，可能包含特性等
+                                if (IsMethodDefinition(line, methodName))
+                                {
+                                    // 找到方法定义行，直接打开带行号的资产
+                                    var methodLine = i + 1;
+                                    AssetDatabase.OpenAsset(scriptAsset, methodLine);
+                                    return; // 找到后直接返回
+                                }
                             }
+
+                            // 如果没有找到精确的方法定义，打开整个脚本文件
+                            AssetDatabase.OpenAsset(scriptAsset);
+                            EditorGUIUtility.PingObject(scriptAsset);
+                            Selection.activeObject = scriptAsset;
+                            return;
                         }
                     }
                 }
                 else
                 {
-                    EditorUtility.DisplayDialog("无法找到脚本", $"无法找到类 {className} 对应的脚本文件", "确定");
+                    // 使用类名精确查找到脚本
+                    var scriptPath = AssetDatabase.GUIDToAssetPath(scriptGUIDs[0]);
+                    var script = AssetDatabase.LoadAssetAtPath<MonoScript>(scriptPath);
+
+                    if (script != null)
+                    {
+                        // 尝试跳转到具体方法（需要使用反射获取行号）
+                        var scriptText = script.text;
+                        var lines = scriptText.Split('\n');
+
+                        // 使用更精确的正则表达式查找方法定义
+                        for (int i = 0; i < lines.Length; i++)
+                        {
+                            var line = lines[i].Trim();
+                            // 检查是否是方法定义，可能包含特性等
+                            if (IsMethodDefinition(line, methodName))
+                            {
+                                // 找到方法定义行，直接打开带行号的资产
+                                var methodLine = i + 1;
+                                AssetDatabase.OpenAsset(script, methodLine);
+                                return; // 找到后直接返回
+                            }
+                        }
+
+                        // 如果没有找到精确的方法定义，打开整个脚本文件
+                        AssetDatabase.OpenAsset(script);
+                        var scriptObj = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(scriptPath);
+                        EditorGUIUtility.PingObject(scriptObj);
+                        Selection.activeObject = scriptObj;
+                    }
                 }
+
+                // 如果前面的尝试都失败了，显示错误
+                EditorUtility.DisplayDialog("无法找到脚本", $"无法找到包含类 {className} 的脚本文件", "确定");
             }
             catch (Exception ex)
             {
                 Debug.LogError($"打开路由代码失败: {ex.Message}");
             }
+        }
+
+        private bool IsMethodDefinition(string line, string methodName)
+        {
+            // 检查是否是方法定义
+            // 支持各种修饰符组合 [GetRoute("/api/...")] public ReturnType MethodName(
+            if (line.Contains(methodName + "(") || line.Contains(methodName + " ("))
+            {
+                // 这是一个方法定义，但要排除属性的getter/setter
+                if (!line.Contains("get {") && !line.Contains("set {"))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private void ExportLogs()
