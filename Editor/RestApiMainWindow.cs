@@ -35,6 +35,9 @@ namespace LocalRestAPI
         // 访问令牌
         private string accessToken = "";
         private bool showToken = false;
+        
+        // 配置
+        private ApiConfig config;
 
         [MenuItem("Tools/Local REST API/主控制台")]
         public static void ShowWindow()
@@ -45,8 +48,10 @@ namespace LocalRestAPI
 
         private void OnEnable()
         {
-            // 初始化访问令牌
-            accessToken = Guid.NewGuid().ToString("N");
+            // 加载配置
+            config = ApiConfig.Load();
+            serverUrl = config.serverUrl;
+            accessToken = config.accessToken;
 
             // 注册日志回调
             Application.logMessageReceived += HandleLog;
@@ -121,7 +126,16 @@ namespace LocalRestAPI
 
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.PrefixLabel("服务地址");
-            EditorGUILayout.SelectableLabel(serverUrl, GUILayout.Height(EditorGUIUtility.singleLineHeight));
+            string newServerUrl = EditorGUILayout.TextField(serverUrl);
+            if (newServerUrl != serverUrl)
+            {
+                serverUrl = newServerUrl;
+                if (config != null)
+                {
+                    config.serverUrl = serverUrl;
+                    config.Save();
+                }
+            }
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.BeginHorizontal();
@@ -159,7 +173,9 @@ namespace LocalRestAPI
             if (GUILayout.Button("重新生成令牌"))
             {
                 accessToken = Guid.NewGuid().ToString("N");
-                AddLog("访问令牌已重新生成");
+                config.accessToken = accessToken;
+                config.Save();
+                AddLog("访问令牌已重新生成并保存");
             }
 
             EditorGUILayout.EndVertical();
@@ -285,6 +301,11 @@ namespace LocalRestAPI
         {
             try
             {
+                // 更新配置
+                config.serverUrl = serverUrl;
+                config.accessToken = accessToken;
+                config.Save();
+
                 if (apiServer == null)
                 {
                     apiServer = new ApiServer(serverUrl, accessToken);
