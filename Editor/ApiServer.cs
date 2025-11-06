@@ -107,10 +107,18 @@ namespace LocalRestAPI
             DateTime startTime = DateTime.Now;
             string method = request.HttpMethod;
             string url = request.Url.ToString();
+            string path = request.Url.AbsolutePath;
             string clientIp = request.RemoteEndPoint?.ToString();
             
-            // 记录请求开始
-            ApiLogger.Instance.LogRequest(method, url, clientIp, null, "");
+            // 检查是否为已注册的路由
+            string routeKey = $"{method} {path}";
+            bool isRegisteredRoute = routes.ContainsKey(routeKey);
+            
+            // 如果是已注册路由，则记录请求开始
+            if (isRegisteredRoute)
+            {
+                ApiLogger.Instance.LogRequest(method, url, clientIp, null, "");
+            }
             
             try
             {
@@ -118,16 +126,24 @@ namespace LocalRestAPI
                 if (!ValidateAccessToken(request))
                 {
                     SendResponse(response, "Unauthorized", 401);
-                    ApiPerformanceMonitor.Instance.RecordApiCall(method, request.Url.AbsolutePath, 401, (DateTime.Now - startTime).TotalMilliseconds, clientIp);
+                    // 如果是已注册路由，则记录性能指标
+                    if (isRegisteredRoute)
+                    {
+                        ApiPerformanceMonitor.Instance.RecordApiCall(method, path, 401, (DateTime.Now - startTime).TotalMilliseconds, clientIp, false);
+                    }
                     return;
                 }
                 
                 // 处理API请求
-                HandleApiRequest(request, response);
+                HandleApiRequest(request, response, isRegisteredRoute);
             }
             catch (Exception ex)
             {
-                ApiLogger.Instance.LogError($"处理请求时出错: {ex.Message}", ex);
+                // 如果是已注册路由，则记录错误日志
+                if (isRegisteredRoute)
+                {
+                    ApiLogger.Instance.LogError($"处理请求时出错: {ex.Message}", ex);
+                }
                 SendResponse(response, $"Internal Server Error: {ex.Message}", 500);
             }
             finally
@@ -135,11 +151,12 @@ namespace LocalRestAPI
                 DateTime endTime = DateTime.Now;
                 double duration = (endTime - startTime).TotalMilliseconds;
                 
-                // 记录性能指标
-                ApiPerformanceMonitor.Instance.RecordApiCall(method, request.Url.AbsolutePath, response.StatusCode, duration, clientIp);
-                
-                // 记录请求完成
-                ApiLogger.Instance.LogResponse("", response.StatusCode, null, "", duration);
+                // 如果是已注册路由，则记录性能指标和请求完成
+                if (isRegisteredRoute)
+                {
+                    ApiPerformanceMonitor.Instance.RecordApiCall(method, path, response.StatusCode, duration, clientIp, false);
+                    ApiLogger.Instance.LogResponse("", response.StatusCode, null, "", duration);
+                }
                 
                 response.Close();
             }
@@ -169,7 +186,7 @@ namespace LocalRestAPI
             return token == accessToken;
         }
         
-        private void HandleApiRequest(HttpListenerRequest request, HttpListenerResponse response)
+        private void HandleApiRequest(HttpListenerRequest request, HttpListenerResponse response, bool isRegisteredRoute = true)
         {
             string path = request.Url.AbsolutePath;
             string method = request.HttpMethod;
@@ -203,12 +220,17 @@ namespace LocalRestAPI
                 catch (Exception ex)
                 {
                     RestApiMainWindow.Log($"调用API方法时出错: {ex.Message}");
-                    ApiLogger.Instance.LogError($"调用API方法时出错: {method} {path}", ex);
+                    // 只对已注册路由记录错误日志
+                    if (isRegisteredRoute)
+                    {
+                        ApiLogger.Instance.LogError($"调用API方法时出错: {method} {path}", ex);
+                    }
                     SendResponse(response, $"Method execution error: {ex.Message}", 500);
                 }
             }
             else
             {
+                // 对于未注册的路由，不记录到日志和性能监控
                 SendResponse(response, "Not Found", 404);
             }
         }

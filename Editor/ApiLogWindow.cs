@@ -128,7 +128,15 @@ namespace LocalRestAPI
             
             if (!string.IsNullOrEmpty(log.Url))
             {
-                GUILayout.Label(log.Url, GUILayout.ExpandWidth(true));
+                // 如果是未注册路由，添加标识
+                string displayUrl = log.Url;
+                if (log.IsUnregisteredRoute)
+                {
+                    displayUrl = "[未注册] " + displayUrl;
+                    GUI.contentColor = Color.yellow; // 未注册路由用黄色显示
+                }
+                GUILayout.Label(displayUrl, GUILayout.ExpandWidth(true));
+                GUI.contentColor = originalColor; // 恢复颜色
             }
             
             if (log.StatusCode != 0)

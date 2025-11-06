@@ -103,6 +103,12 @@ namespace LocalRestAPI
             var requestCounts = monitor.GetRequestCountByPath();
             var responseTimes = monitor.GetResponseTimeByPath();
             
+            // 获取未注册路由的请求数
+            var allCalls = monitor.GetAllApiCalls();
+            var unregisteredCalls = allCalls.Where(c => c.IsUnregisteredRoute).ToList();
+            int unregisteredCount = unregisteredCalls.Count;
+            float unregisteredAvgTime = unregisteredCalls.Any() ? (float)unregisteredCalls.Average(c => c.DurationMs) : 0;
+            
             // 按请求数排序
             var sortedPaths = requestCounts
                 .OrderByDescending(kvp => kvp.Value)
@@ -111,12 +117,40 @@ namespace LocalRestAPI
             
             scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition, GUILayout.Height(200));
             
-            if (sortedPaths.Count == 0)
+            if (sortedPaths.Count == 0 && unregisteredCount == 0)
             {
                 EditorGUILayout.LabelField("暂无性能数据");
             }
             else
             {
+                // 显示未注册路由统计
+                if (unregisteredCount > 0)
+                {
+                    EditorGUILayout.BeginHorizontal();
+                    
+                    // 路径和方法
+                    var unregisteredStyle = new GUIStyle(EditorStyles.label);
+                    unregisteredStyle.normal.textColor = Color.yellow;
+                    EditorGUILayout.LabelField("[未注册路由]", unregisteredStyle, GUILayout.Width(200));
+                    
+                    // 请求数
+                    EditorGUILayout.LabelField($"请求: {unregisteredCount}", GUILayout.Width(100));
+                    
+                    // 平均响应时间
+                    EditorGUILayout.LabelField($"平均: {unregisteredAvgTime:F1}ms", GUILayout.Width(100));
+                    
+                    // 绘制简单的响应时间条形图
+                    var barWidth = Mathf.Clamp((float)(unregisteredAvgTime / 1000.0), 0, 1); // 限制在1秒内
+                    EditorGUI.ProgressBar(
+                        EditorGUILayout.GetControlRect(GUILayout.Width(100)), 
+                        barWidth, 
+                        $"{unregisteredAvgTime:F1}ms"
+                    );
+                    
+                    EditorGUILayout.EndHorizontal();
+                }
+                
+                // 显示已注册路由统计
                 foreach (var path in sortedPaths)
                 {
                     var count = requestCounts.ContainsKey(path) ? requestCounts[path] : 0;

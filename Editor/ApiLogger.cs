@@ -29,7 +29,7 @@ namespace LocalRestAPI
             logEntries = new List<ApiLogEntry>();
         }
         
-        public void LogRequest(string method, string url, string clientIp, Dictionary<string, string> headers, string body)
+        public void LogRequest(string method, string url, string clientIp, Dictionary<string, string> headers, string body, bool isUnregisteredRoute = false)
         {
             var logEntry = new ApiLogEntry
             {
@@ -40,13 +40,14 @@ namespace LocalRestAPI
                 Url = url,
                 ClientIp = clientIp,
                 Headers = headers,
-                Body = body
+                Body = body,
+                IsUnregisteredRoute = isUnregisteredRoute
             };
             
             AddLogEntry(logEntry);
         }
         
-        public void LogResponse(string requestId, int statusCode, Dictionary<string, string> headers, string body, double durationMs)
+        public void LogResponse(string requestId, int statusCode, Dictionary<string, string> headers, string body, double durationMs, bool isUnregisteredRoute = false)
         {
             var logEntry = new ApiLogEntry
             {
@@ -56,7 +57,8 @@ namespace LocalRestAPI
                 StatusCode = statusCode,
                 Headers = headers,
                 Body = body,
-                DurationMs = durationMs
+                DurationMs = durationMs,
+                IsUnregisteredRoute = isUnregisteredRoute
             };
             
             AddLogEntry(logEntry);
@@ -130,18 +132,19 @@ namespace LocalRestAPI
     }
     
     public class ApiLogEntry
-    {
-        public string Id { get; set; }
-        public DateTime Timestamp { get; set; }
-        public string Type { get; set; } // Request, Response, Error
-        public string Method { get; set; }
-        public string Url { get; set; }
-        public int StatusCode { get; set; }
-        public string ClientIp { get; set; }
-        public Dictionary<string, string> Headers { get; set; }
-        public string Body { get; set; }
-        public double DurationMs { get; set; }
-        public string Message { get; set; }
-        public string Exception { get; set; }
-    }
+        {
+            public string Id { get; set; }
+            public DateTime Timestamp { get; set; }
+            public string Type { get; set; } // Request, Response, Error
+            public string Method { get; set; }
+            public string Url { get; set; }
+            public int StatusCode { get; set; }
+            public string ClientIp { get; set; }
+            public Dictionary<string, string> Headers { get; set; }
+            public string Body { get; set; }
+            public double DurationMs { get; set; }
+            public string Message { get; set; }
+            public string Exception { get; set; }
+            public bool IsUnregisteredRoute { get; set; } // 标识是否为未注册路由
+        }
 }

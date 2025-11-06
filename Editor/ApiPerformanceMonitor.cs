@@ -38,9 +38,10 @@ namespace LocalRestAPI
             public int StatusCode { get; set; }
             public double DurationMs { get; set; }
             public string ClientIp { get; set; }
+            public bool IsUnregisteredRoute { get; set; } // 标识是否为未注册路由
         }
         
-        public void RecordApiCall(string method, string path, int statusCode, double durationMs, string clientIp = "")
+        public void RecordApiCall(string method, string path, int statusCode, double durationMs, string clientIp = "", bool isUnregisteredRoute = false)
         {
             var metric = new ApiCallMetric
             {
@@ -50,7 +51,8 @@ namespace LocalRestAPI
                 Path = path,
                 StatusCode = statusCode,
                 DurationMs = durationMs,
-                ClientIp = clientIp
+                ClientIp = clientIp,
+                IsUnregisteredRoute = isUnregisteredRoute // 标识是否为未注册路由
             };
             
             recentCalls.Add(metric);
@@ -95,7 +97,9 @@ namespace LocalRestAPI
         public Dictionary<string, float> GetResponseTimeByPath()
         {
             var result = new Dictionary<string, float>();
-            var grouped = recentCalls.GroupBy(c => c.Path);
+            // 过滤掉未注册路由
+            var registeredCalls = recentCalls.Where(c => !c.IsUnregisteredRoute);
+            var grouped = registeredCalls.GroupBy(c => c.Path);
             
             foreach (var group in grouped)
             {
@@ -108,7 +112,9 @@ namespace LocalRestAPI
         public Dictionary<string, int> GetRequestCountByPath()
         {
             var result = new Dictionary<string, int>();
-            var grouped = recentCalls.GroupBy(c => c.Path);
+            // 过滤掉未注册路由
+            var registeredCalls = recentCalls.Where(c => !c.IsUnregisteredRoute);
+            var grouped = registeredCalls.GroupBy(c => c.Path);
             
             foreach (var group in grouped)
             {
@@ -130,6 +136,11 @@ namespace LocalRestAPI
                 .OrderByDescending(c => c.Timestamp)
                 .Take(count)
                 .ToList();
+        }
+        
+        public List<ApiCallMetric> GetAllApiCalls()
+        {
+            return new List<ApiCallMetric>(recentCalls);
         }
         
         public float GetErrorRate()
