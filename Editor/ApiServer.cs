@@ -329,15 +329,33 @@ namespace LocalRestAPI
                 // 然后尝试从POST数据中查找
                 else if (request.HttpMethod == "POST" && request.ContentLength64 > 0)
                 {
-                    using (var reader = new StreamReader(request.InputStream))
+                    // 读取POST数据
+                    string body = "";
+                    if (request.InputStream.CanSeek)
                     {
-                        string body = reader.ReadToEnd();
-                        // 简单的JSON解析，实际项目中应该使用更健壮的JSON库
-                        // 这里我们只处理简单的键值对
-                        if (body.Contains("{"))
+                        // 如果流支持查找，保存当前位置
+                        long originalPosition = request.InputStream.Position;
+                        using (var reader = new StreamReader(request.InputStream))
                         {
-                            // TODO: 实现更完整的JSON参数解析
+                            body = reader.ReadToEnd();
                         }
+                        // 恢复原始位置
+                        request.InputStream.Position = originalPosition;
+                    }
+                    else
+                    {
+                        // 如果流不支持查找，重新读取
+                        using (var memoryStream = new MemoryStream())
+                        {
+                            request.InputStream.CopyTo(memoryStream);
+                            body = System.Text.Encoding.UTF8.GetString(memoryStream.ToArray());
+                        }
+                    }
+                    
+                    // 解析JSON请求体
+                    if (!string.IsNullOrEmpty(body) && body.Trim().StartsWith("{"))
+                    {
+                        paramValue = ExtractValueFromJson(body, param.Name);
                     }
                 }
                 
@@ -374,6 +392,37 @@ namespace LocalRestAPI
             }
             
             return parameterValues;
+        }
+        
+        private string ExtractValueFromJson(string json, string paramName)
+        {
+            // 简单的JSON解析，查找指定参数名的值
+            // 格式: "paramName": "value" 或 "paramName":value
+            string escapedParamName = paramName.Replace("\"", "\\\"");
+            string pattern = $"\"{escapedParamName}\"\\s*:\\s*\"([^\"]*)\""; // 匹配字符串值
+            var stringMatch = System.Text.RegularExpressions.Regex.Match(json, pattern);
+            
+            if (stringMatch.Success)
+            {
+                return stringMatch.Groups[1].Value;
+            }
+            
+            // 尝试匹配非字符串值（数字、布尔值等）
+            pattern = $"\"{escapedParamName}\"\\s*:\\s*([^,}}]*)[\\s,}}]";
+            var valueMatch = System.Text.RegularExpressions.Regex.Match(json, pattern);
+            
+            if (valueMatch.Success)
+            {
+                string value = valueMatch.Groups[1].Value.Trim();
+                // 移除可能的引号
+                if (value.StartsWith("\"") && value.EndsWith("\"") && value.Length >= 2)
+                {
+                    value = value.Substring(1, value.Length - 2);
+                }
+                return value;
+            }
+            
+            return null;
         }
         
         private object GetDefault(Type type)
