@@ -261,28 +261,84 @@ namespace LocalRestAPI
         /// </summary>
         private static void GenerateHandlerClass(System.Text.StringBuilder sb, string className, MethodInfo methodInfo, Type controllerType, string parameterParserName)
         {
-            // 读取模板
-            var templatePath = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Assets", "LocalRestAPI", "Editor", "ApiHandlerTemplate.txt");
-            if (!File.Exists(templatePath))
+            // 获取路由属性以确定是否需要主线程
+            var routeAttr = methodInfo.GetCustomAttribute<ApiRouteAttribute>();
+            bool needsMainThread = routeAttr?.NeedsMainThread ?? false;
+            
+            if (needsMainThread)
             {
-                Debug.LogError($"API处理器模板文件不存在: {templatePath}");
-                return;
+                // 为需要主线程执行的API生成继承自ThreadSafeApiHandler的处理器类
+                // 读取模板
+                var templatePath = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Assets", "LocalRestAPI", "Editor", "ApiHandlerTemplate.txt");
+                if (!File.Exists(templatePath))
+                {
+                    Debug.LogError($"API处理器模板文件不存在: {templatePath}");
+                    return;
+                }
+                
+                string template = File.ReadAllText(templatePath, Encoding.UTF8);
+                
+                // 替换模板变量
+                template = template.Replace("{{HANDLER_CLASS_NAME}}", className);
+                template = template.Replace("{{PARAMETER_PARSER_CLASS_NAME}}", parameterParserName);
+                template = template.Replace("{{CONTROLLER_NAME}}", methodInfo.DeclaringType.Name);
+                template = template.Replace("{{METHOD_NAME}}", methodInfo.Name);
+                template = template.Replace("{{FULL_CONTROLLER_NAME}}", controllerType.FullName.Replace("+", "."));
+                template = template.Replace("{{PARAMETER_LIST}}", string.Join(", ", GenerateParameterList(methodInfo)));
+                template = template.Replace("{{PARAMETER_CAST_LIST}}", string.Join(", ", GenerateParameterCastList(methodInfo)));
+                
+                // 根据NeedsMainThread值进行替换
+                template = template.Replace("{{NEEDS_MAIN_THREAD}}", needsMainThread.ToString().ToLower());
+                
+                // 为模板中的每一行添加适当的缩进
+                string indentedTemplate = "        " + template.Replace("\n", "\n        ");
+                sb.AppendLine(indentedTemplate);
             }
-            
-            string template = File.ReadAllText(templatePath, Encoding.UTF8);
-            
-            // 替换模板变量
-            template = template.Replace("{{HANDLER_CLASS_NAME}}", className);
-            template = template.Replace("{{PARAMETER_PARSER_CLASS_NAME}}", parameterParserName);
-            template = template.Replace("{{CONTROLLER_NAME}}", methodInfo.DeclaringType.Name);
-            template = template.Replace("{{METHOD_NAME}}", methodInfo.Name);
-            template = template.Replace("{{FULL_CONTROLLER_NAME}}", controllerType.FullName.Replace("+", "."));
-            template = template.Replace("{{PARAMETER_LIST}}", string.Join(", ", GenerateParameterList(methodInfo)));
-            template = template.Replace("{{PARAMETER_CAST_LIST}}", string.Join(", ", GenerateParameterCastList(methodInfo)));
-            
-            // 为模板中的每一行添加适当的缩进
-            string indentedTemplate = "        " + template.Replace("\n", "\n        ");
-            sb.AppendLine(indentedTemplate);
+            else
+            {
+                // 为不需要主线程执行的API生成直接实现IApiHandler的处理器类
+                sb.AppendLine($"        /// <summary>");
+                sb.AppendLine($"        /// 处理 {methodInfo.DeclaringType.Name}.{methodInfo.Name} API请求");
+                sb.AppendLine($"        /// </summary>");
+                sb.AppendLine($"        public class {className} : IApiHandler");
+                sb.AppendLine($"        {{");
+                sb.AppendLine($"            public bool HandleRequest(HttpListenerRequest request, HttpListenerResponse response)");
+                sb.AppendLine($"            {{");
+                sb.AppendLine($"                try");
+                sb.AppendLine($"                {{");
+                sb.AppendLine($"                    // 使用预生成的参数解析器");
+                sb.AppendLine($"                    var parser = new PredefinedApiHandlers.{parameterParserName}();");
+                sb.AppendLine($"                    var parameters = parser.ParseParameters(request);");
+                sb.AppendLine($"");
+                sb.AppendLine($"                    // 直接创建控制器实例并调用方法");
+                sb.AppendLine($"                    var controller = new {(controllerType.FullName.Replace("+", "."))}();");
+                sb.AppendLine($"                    var result = controller.{methodInfo.Name}({string.Join(", ", GenerateParameterCastList(methodInfo))});");
+                sb.AppendLine($"");
+                sb.AppendLine($"                    // 生成JSON响应");
+                sb.AppendLine($"                    string jsonResponse = result != null ? JsonUtility.ToJson(result) : JsonUtility.ToJson(new {{ success = true }});");
+                sb.AppendLine($"                    SendJsonResponse(response, jsonResponse, 200);");
+                sb.AppendLine($"                    return true;");
+                sb.AppendLine($"                }}");
+                sb.AppendLine($"                catch (System.Exception ex)");
+                sb.AppendLine($"                {{");
+                sb.AppendLine($"                    SendJsonResponse(response, $\"Method execution error: {{ex.Message}}\", 500);");
+                sb.AppendLine($"                    return false;");
+                sb.AppendLine($"                }}");
+                sb.AppendLine($"            }}");
+                sb.AppendLine($"");
+                sb.AppendLine($"            private void SendJsonResponse(HttpListenerResponse response, string content, int statusCode)");
+                sb.AppendLine($"            {{");
+                sb.AppendLine($"                response.StatusCode = statusCode;");
+                sb.AppendLine($"                response.ContentType = \"application/json\";");
+                sb.AppendLine($"");
+                sb.AppendLine($"                byte[] buffer = System.Text.Encoding.UTF8.GetBytes(content);");
+                sb.AppendLine($"                response.ContentLength64 = buffer.Length;");
+                sb.AppendLine($"");
+                sb.AppendLine($"                response.OutputStream.Write(buffer, 0, buffer.Length);");
+                sb.AppendLine($"            }}");
+                sb.AppendLine($"        }}");
+                sb.AppendLine($"");
+            }
         }
         
         /// <summary>

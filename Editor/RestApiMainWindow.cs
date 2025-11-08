@@ -63,6 +63,9 @@ namespace LocalRestAPI
 
             // 定期更新性能指标
             EditorApplication.update += UpdatePerformanceMetrics;
+            
+            // 处理主线程队列
+            EditorApplication.update += ProcessMainThreadQueue;
         }
 
         private void OnDisable()
@@ -75,6 +78,15 @@ namespace LocalRestAPI
 
             // 取消注册性能指标更新
             EditorApplication.update -= UpdatePerformanceMetrics;
+            
+            // 取消注册主线程队列处理
+            EditorApplication.update -= ProcessMainThreadQueue;
+        }
+        
+        private void ProcessMainThreadQueue()
+        {
+            // 处理API服务器的主线程队列
+            MainThreadDispatcher.ProcessQueue();
         }
 
         private void HandleLog(string condition, string stackTrace, LogType type)

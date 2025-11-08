@@ -13,6 +13,42 @@ using UnityEngine;
 namespace LocalRestAPI
 
 {
+    // 主线程调度器，用于在主线程上执行需要Unity主线程的代码
+    public class MainThreadDispatcher
+    {
+        private static Queue<System.Action> mainThreadActions = new Queue<System.Action>();
+        private static readonly object lockObject = new object();
+
+        // 添加到主线程队列
+        public static void Enqueue(System.Action action)
+        {
+            lock (lockObject)
+            {
+                mainThreadActions.Enqueue(action);
+                RestApiMainWindow.Log($"任务已添加到主线程队列，当前队列大小: {mainThreadActions.Count}");
+            }
+        }
+
+        // 处理主线程队列（需要在Unity主线程中调用）
+        public static void ProcessQueue()
+        {
+            lock (lockObject)
+            {
+                int processedCount = 0;
+                while (mainThreadActions.Count > 0)
+                {
+                    var action = mainThreadActions.Dequeue();
+                    action?.Invoke();
+                    processedCount++;
+                }
+                if (processedCount > 0)
+                {
+                    RestApiMainWindow.Log($"处理了 {processedCount} 个主线程任务");
+                }
+            }
+        }
+    }
+
     public class ApiServer
 
     {
@@ -273,124 +309,74 @@ namespace LocalRestAPI
 
         private void HandleApiRequest(HttpListenerRequest request, HttpListenerResponse response, DateTime startTime, string clientIp, bool isRegisteredRoute = true)
 
+
         {
             string path = request.Url.AbsolutePath;
+
 
             string method = request.HttpMethod;
 
 
             // 检查是否为内置路由
 
+
             if (path == "/api/routes" && method == "GET")
+
 
             {
                 HandleRoutesRequest(response);
+
 
                 return;
             }
 
 
-            // 首先尝试匹配预定义路由（无反射方式）
-
-            string routeKey = $"{method} {path}";
-
-
-            if (predefinedRoutes.ContainsKey(routeKey))
-
-
-            {
-                var predefinedRoute = predefinedRoutes[routeKey];
-
-
-                bool handled = predefinedRoute.Handler.HandleRequest(request, response);
-
-
-                // 如果是已注册路由，则记录性能指标和请求完成
-
-                if (isRegisteredRoute)
-
-                {
-                    DateTime endTime = DateTime.Now;
-
-                    double duration = (endTime - startTime).TotalMilliseconds;
-
-                    ApiPerformanceMonitor.Instance.RecordApiCall(method, path, response.StatusCode, duration, clientIp, false);
-
-                    ApiLogger.Instance.LogResponse("", response.StatusCode, null, "", duration);
-                }
-
-
-                if (handled)
-
-
-                {
-                    return;
-                }
-
-
-                else
-
-
-                {
-                    SendResponse(response, "Method execution error", 500);
-
-
-                    return;
-                }
-            }
-
-
-            // 如果没有匹配的预定义路由，尝试使用原始路由（反射方式作为后备）
-
-            if (routes.ContainsKey(routeKey))
-
-            {
-                var methodInfo = routes[routeKey];
-
-
-                try
-
-                {
-                    // 获取参数
-
-                    var parameters = GetParametersFromRequest(request, methodInfo);
-
-
-                    // 调用控制器方法
-
-                    object controllerInstance = Activator.CreateInstance(controllerTypes[methodInfo.DeclaringType.FullName]);
-
-                    var result = methodInfo.Invoke(controllerInstance, parameters);
-
-
-                    // 发送响应
-
-                    string jsonResponse = JsonUtility.ToJson(result != null ? result : new { success = true });
-
-                    SendResponse(response, jsonResponse, 200, "application/json");
-                }
-
-                catch (Exception ex)
-
-                {
-                    RestApiMainWindow.Log($"调用API方法时出错: {ex.Message}");
-
-                    // 只对已注册路由记录错误日志
-
-                    if (isRegisteredRoute)
-
-                    {
-                        ApiLogger.Instance.LogError($"调用API方法时出错: {method} {path}", ex);
-                    }
-
-                    SendResponse(response, $"Method execution error: {ex.Message}", 500);
-                }
+            // 尝试匹配预定义路由
+
+
+            string routeKey = $"{method} {path}";
+
+
+            if (predefinedRoutes.ContainsKey(routeKey))
+
+
+            {
+                var predefinedRoute = predefinedRoutes[routeKey];
+
+
+                bool handled = predefinedRoute.Handler.HandleRequest(request, response);
+
+
+                // 记录性能指标和请求完成
+                // 对于所有API（包括主线程API），我们都记录请求开始
+                if (isRegisteredRoute)
+                {
+                    DateTime endTime = DateTime.Now;
+                    double duration = (endTime - startTime).TotalMilliseconds;
+                    ApiPerformanceMonitor.Instance.RecordApiCall(method, path, response.StatusCode, duration, clientIp, false);
+                    ApiLogger.Instance.LogResponse("", response.StatusCode, null, "", duration);
+                }
+
+
+                if (handled)
+                {
+                    return;
+                }
+
+                else
+                {
+                    SendResponse(response, "Method execution error", 500);
+
+                    return;
+                }
             }
 
             else
 
+
             {
                 // 对于未注册的路由，不记录到日志和性能监控
+
 
                 SendResponse(response, "Not Found", 404);
             }
@@ -398,49 +384,38 @@ namespace LocalRestAPI
 
         private void HandleRoutesRequest(HttpListenerResponse response)
 
+
         {
             var routeList = new List<RouteInfo>();
 
 
             // 添加预定义路由
 
+
             foreach (var route in predefinedRoutes)
 
-            {
-                var parts = route.Key.Split(' ');
-
-                routeList.Add(new RouteInfo
-
-                {
-                    method = parts[0],
-
-                    path = parts[1],
-
-                    handler = route.Value.ControllerName + "." + route.Value.MethodName + " (预定义)"
-                });
-            }
-
-
-            // 添加反射路由（作为后备）
-
-            foreach (var route in routes)
 
             {
                 var parts = route.Key.Split(' ');
 
+
                 routeList.Add(new RouteInfo
+
 
                 {
                     method = parts[0],
 
+
                     path = parts[1],
 
-                    handler = route.Value.DeclaringType.Name + "." + route.Value.Name + " (反射)"
+
+                    handler = route.Value.ControllerName + "." + route.Value.MethodName
                 });
             }
 
 
             string jsonResponse = JsonUtility.ToJson(new { routes = routeList });
+
 
             SendResponse(response, jsonResponse, 200, "application/json");
         }
@@ -572,21 +547,22 @@ namespace LocalRestAPI
         }
 
         private void SendResponse(HttpListenerResponse response, string content, int statusCode, string contentType = "text/plain")
+
         {
             response.StatusCode = statusCode;
+
             response.ContentType = contentType;
 
+
             byte[] buffer = Encoding.UTF8.GetBytes(content);
+
             response.ContentLength64 = buffer.Length;
+
 
             response.OutputStream.Write(buffer, 0, buffer.Length);
         }
 
-        public Dictionary<string, MethodInfo> GetRoutes()
-
-        {
-            return new Dictionary<string, MethodInfo>(routes);
-        }
+        
 
 
         /// <summary>
@@ -640,101 +616,73 @@ namespace LocalRestAPI
 
         private void RegisterApiControllers()
 
+
         {
             routes.Clear();
 
+
             controllerTypes.Clear();
+
 
             predefinedRoutes.Clear();
 
 
-            // 首先尝试使用预定义路由注册器
+            // 尝试使用预定义路由注册器
+
 
             try
+
 
             {
                 // 使用反射调用预定义路由注册器（这个调用只会在代码生成后存在）
 
+
                 var registrarType = Type.GetType("LocalRestAPI.PredefinedRouteRegistrar");
 
+
                 if (registrarType != null)
+
 
                 {
                     var registerMethod = registrarType.GetMethod("RegisterRoutes");
 
+
                     if (registerMethod != null)
+
 
                     {
                         registerMethod.Invoke(null, new object[] { this });
 
+
                         RestApiMainWindow.Log($"已注册 {predefinedRoutes.Count} 个预定义API路由");
 
-                        return; // 如果成功注册了预定义路由，则不再使用反射
+
+                        return; // 如果成功注册了预定义路由，直接返回
                     }
                 }
+
+
+                // 如果预定义路由注册器不存在，输出警告信息
+
+                RestApiMainWindow.Log("警告: 未找到预定义路由注册器，可能需要先生成API代码。");
             }
+
 
             catch (Exception ex)
 
+
             {
-                RestApiMainWindow.Log($"注册预定义路由失败: {ex.Message}，将使用反射方式注册路由");
+                RestApiMainWindow.Log($"注册预定义路由失败: {ex.Message}");
             }
 
 
-            // 查找所有标记了ApiRouteAttribute的类和方法（原始反射方式，作为后备方案）
+            // 如果没有注册到任何预定义路由，输出信息
 
-            var assemblies = AppDomain.CurrentDomain.GetAssemblies();
-
-            foreach (var assembly in assemblies)
+            if (predefinedRoutes.Count == 0)
 
             {
-                try
-
-                {
-                    foreach (var type in assembly.GetTypes())
-
-                    {
-                        if (type.Namespace != null && type.Namespace.StartsWith("LocalRestAPI"))
-
-                        {
-                            // 检查类中的所有方法
-
-                            foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance))
-
-                            {
-                                var routeAttr = method.GetCustomAttribute<ApiRouteAttribute>();
-
-                                if (routeAttr != null)
-
-                                {
-                                    string routeKey = $"{routeAttr.Method} {routeAttr.Path}";
-
-
-                                    // 注册路由
-
-                                    routes[routeKey] = method;
-
-                                    controllerTypes[type.FullName] = type;
-
-
-                                    RestApiMainWindow.Log($"注册API路由: {routeKey} -> {type.Name}.{method.Name}");
-                                }
-                            }
-                        }
-                    }
-                }
-
-                catch (ReflectionTypeLoadException)
-
-                {
-                    // 忽略无法加载类型的程序集
-                }
+                RestApiMainWindow.Log("没有注册任何API路由，请确保已生成API代码。");
             }
-
-
-            // 注册内置路由
-
-            RestApiMainWindow.Log($"已注册 {routes.Count} 个API路由（使用反射方式）");
         }
 
         public bool IsRunning()
@@ -791,32 +739,45 @@ namespace LocalRestAPI
 }
 // API路由属性
 
+
 [AttributeUsage(AttributeTargets.Method)]
 public class ApiRouteAttribute : Attribute
+
 
 {
     public string Method { get; set; }
 
+
     public string Path { get; set; }
 
 
-    public ApiRouteAttribute(string method, string path)
+    public bool NeedsMainThread { get; set; }
+
+
+    public ApiRouteAttribute(string method, string path, bool needsMainThread = false)
+
 
     {
         Method = method.ToUpper();
 
+
         Path = path;
+
+        NeedsMainThread = needsMainThread;
     }
 }
 
 
 // GET请求属性
 
+
 [AttributeUsage(AttributeTargets.Method)]
 public class GetRouteAttribute : ApiRouteAttribute
 
+
 {
-    public GetRouteAttribute(string path) : base("GET", path)
+    public GetRouteAttribute(string path, bool needsMainThread = false) : base("GET", path, needsMainThread)
+
     {
     }
 }
@@ -824,11 +785,14 @@ public class GetRouteAttribute : ApiRouteAttribute
 
 // POST请求属性
 
+
 [AttributeUsage(AttributeTargets.Method)]
 public class PostRouteAttribute : ApiRouteAttribute
 
+
 {
-    public PostRouteAttribute(string path) : base("POST", path)
+    public PostRouteAttribute(string path, bool needsMainThread = false) : base("POST", path, needsMainThread)
+
     {
     }
 }
