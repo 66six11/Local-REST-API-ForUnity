@@ -9,30 +9,48 @@ using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
 
+
 namespace LocalRestAPI
+
 {
     public class ApiServer
+
     {
         private HttpListener httpListener;
+
         private Thread listenerThread;
+
         private bool isRunning = false;
+
         private string accessToken;
+
         private string serverUrl;
-        
+
+
         // 存储API路由
+
         private Dictionary<string, MethodInfo> routes = new Dictionary<string, MethodInfo>();
+
         private Dictionary<string, Type> controllerTypes = new Dictionary<string, Type>();
-        
+
+
+        // 存储预定义的API路由
+
+        private Dictionary<string, PredefinedApiRoute> predefinedRoutes = new Dictionary<string, PredefinedApiRoute>();
+
+
         public ApiServer(string url, string token)
+
         {
             serverUrl = url;
+
             accessToken = token;
         }
-        
+
         public void Start()
         {
             if (isRunning) return;
-            
+
             try
             {
                 // 验证URL格式
@@ -41,7 +59,7 @@ namespace LocalRestAPI
                     RestApiMainWindow.Log($"无效的服务器URL格式: {serverUrl}");
                     return;
                 }
-                
+
                 // 检查端口是否可用
                 try
                 {
@@ -55,9 +73,9 @@ namespace LocalRestAPI
                 {
                     // 如果无法解析URL或检查端口，继续启动尝试
                 }
-                
+
                 httpListener = new HttpListener();
-                
+
                 // 添加URL前缀
                 try
                 {
@@ -69,19 +87,19 @@ namespace LocalRestAPI
                     Stop();
                     return;
                 }
-                
+
                 // 尝试启动HTTP监听器
                 httpListener.Start();
-                
+
                 isRunning = true;
-                
+
                 // 扫描并注册API控制器
                 RegisterApiControllers();
-                
+
                 // 启动监听线程
                 listenerThread = new Thread(ListenForRequests);
                 listenerThread.Start();
-                
+
                 RestApiMainWindow.Log($"API服务器已启动，监听地址: {serverUrl}");
             }
             catch (HttpListenerException ex)
@@ -106,29 +124,29 @@ namespace LocalRestAPI
                 Stop();
             }
         }
-        
+
         public void Stop()
         {
             if (!isRunning) return;
-            
+
             isRunning = false;
-            
+
             if (httpListener != null)
             {
                 httpListener.Stop();
                 httpListener.Close();
                 httpListener = null;
             }
-            
+
             if (listenerThread != null)
             {
                 listenerThread.Join(1000); // 等待最多1秒
                 listenerThread = null;
             }
-            
+
             RestApiMainWindow.Log("API服务器已停止");
         }
-        
+
         private void ListenForRequests()
         {
             while (isRunning)
@@ -144,32 +162,33 @@ namespace LocalRestAPI
                     {
                         RestApiMainWindow.Log($"处理请求时出错: {ex.Message}");
                     }
+
                     break;
                 }
             }
         }
-        
+
         private void ProcessRequest(HttpListenerContext context)
         {
             var request = context.Request;
             var response = context.Response;
-            
+
             DateTime startTime = DateTime.Now;
             string method = request.HttpMethod;
             string url = request.Url.ToString();
             string path = request.Url.AbsolutePath;
             string clientIp = request.RemoteEndPoint?.ToString();
-            
+
             // 检查是否为已注册的路由
             string routeKey = $"{method} {path}";
             bool isRegisteredRoute = routes.ContainsKey(routeKey);
-            
+
             // 如果是已注册路由，则记录请求开始
             if (isRegisteredRoute)
             {
                 ApiLogger.Instance.LogRequest(method, url, clientIp, null, "");
             }
-            
+
             try
             {
                 // 验证访问令牌
@@ -181,9 +200,10 @@ namespace LocalRestAPI
                     {
                         ApiPerformanceMonitor.Instance.RecordApiCall(method, path, 401, (DateTime.Now - startTime).TotalMilliseconds, clientIp, false);
                     }
+
                     return;
                 }
-                
+
                 // 处理API请求
                 HandleApiRequest(request, response, isRegisteredRoute);
             }
@@ -194,24 +214,25 @@ namespace LocalRestAPI
                 {
                     ApiLogger.Instance.LogError($"处理请求时出错: {ex.Message}", ex);
                 }
+
                 SendResponse(response, $"Internal Server Error: {ex.Message}", 500);
             }
             finally
             {
                 DateTime endTime = DateTime.Now;
                 double duration = (endTime - startTime).TotalMilliseconds;
-                
+
                 // 如果是已注册路由，则记录性能指标和请求完成
                 if (isRegisteredRoute)
                 {
                     ApiPerformanceMonitor.Instance.RecordApiCall(method, path, response.StatusCode, duration, clientIp, false);
                     ApiLogger.Instance.LogResponse("", response.StatusCode, null, "", duration);
                 }
-                
+
                 response.Close();
             }
         }
-        
+
         private bool ValidateAccessToken(HttpListenerRequest request)
         {
             // 检查请求头中的访问令牌
@@ -221,106 +242,190 @@ namespace LocalRestAPI
                 // 检查查询参数中的访问令牌
                 token = request.QueryString["token"];
             }
-            
+
             if (string.IsNullOrEmpty(token))
             {
                 return false;
             }
-            
+
             // 移除 "Bearer " 前缀（如果存在）
             if (token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
             {
                 token = token.Substring(7);
             }
-            
+
             return token == accessToken;
         }
-        
+
         private void HandleApiRequest(HttpListenerRequest request, HttpListenerResponse response, bool isRegisteredRoute = true)
+
         {
             string path = request.Url.AbsolutePath;
+
             string method = request.HttpMethod;
-            
+
+
             // 检查是否为内置路由
+
             if (path == "/api/routes" && method == "GET")
+
             {
                 HandleRoutesRequest(response);
+
                 return;
             }
-            
-            // 查找匹配的API路由
+
+
+            // 首先尝试匹配预定义路由（无反射方式）
+
             string routeKey = $"{method} {path}";
+
+            if (predefinedRoutes.ContainsKey(routeKey))
+
+            {
+                var predefinedRoute = predefinedRoutes[routeKey];
+
+                bool handled = predefinedRoute.Handler.HandleRequest(request, response);
+
+                if (handled)
+
+                {
+                    return;
+                }
+
+                else
+
+                {
+                    SendResponse(response, "Method execution error", 500);
+
+                    return;
+                }
+            }
+
+
+            // 如果没有匹配的预定义路由，尝试使用原始路由（反射方式作为后备）
+
             if (routes.ContainsKey(routeKey))
+
             {
                 var methodInfo = routes[routeKey];
-                
+
+
                 try
+
                 {
                     // 获取参数
+
                     var parameters = GetParametersFromRequest(request, methodInfo);
-                    
+
+
                     // 调用控制器方法
+
                     object controllerInstance = Activator.CreateInstance(controllerTypes[methodInfo.DeclaringType.FullName]);
+
                     var result = methodInfo.Invoke(controllerInstance, parameters);
-                    
+
+
                     // 发送响应
+
                     string jsonResponse = JsonUtility.ToJson(result != null ? result : new { success = true });
+
                     SendResponse(response, jsonResponse, 200, "application/json");
                 }
+
                 catch (Exception ex)
+
                 {
                     RestApiMainWindow.Log($"调用API方法时出错: {ex.Message}");
+
                     // 只对已注册路由记录错误日志
+
                     if (isRegisteredRoute)
+
                     {
                         ApiLogger.Instance.LogError($"调用API方法时出错: {method} {path}", ex);
                     }
+
                     SendResponse(response, $"Method execution error: {ex.Message}", 500);
                 }
             }
+
             else
+
             {
                 // 对于未注册的路由，不记录到日志和性能监控
+
                 SendResponse(response, "Not Found", 404);
             }
         }
-        
+
         private void HandleRoutesRequest(HttpListenerResponse response)
+
         {
             var routeList = new List<RouteInfo>();
-            foreach (var route in routes)
+
+
+            // 添加预定义路由
+
+            foreach (var route in predefinedRoutes)
+
             {
                 var parts = route.Key.Split(' ');
+
                 routeList.Add(new RouteInfo
+
                 {
                     method = parts[0],
+
                     path = parts[1],
-                    handler = route.Value.DeclaringType.Name + "." + route.Value.Name
+
+                    handler = route.Value.ControllerName + "." + route.Value.MethodName + " (预定义)"
                 });
             }
-            
+
+
+            // 添加反射路由（作为后备）
+
+            foreach (var route in routes)
+
+            {
+                var parts = route.Key.Split(' ');
+
+                routeList.Add(new RouteInfo
+
+                {
+                    method = parts[0],
+
+                    path = parts[1],
+
+                    handler = route.Value.DeclaringType.Name + "." + route.Value.Name + " (反射)"
+                });
+            }
+
+
             string jsonResponse = JsonUtility.ToJson(new { routes = routeList });
+
             SendResponse(response, jsonResponse, 200, "application/json");
         }
-        
+
         [Serializable]
-        private class RouteInfo
+        public class RouteInfo
         {
             public string method;
             public string path;
             public string handler;
         }
-        
+
         private object[] GetParametersFromRequest(HttpListenerRequest request, MethodInfo methodInfo)
         {
             var parameters = methodInfo.GetParameters();
             var parameterValues = new object[parameters.Length];
-            
+
             for (int i = 0; i < parameters.Length; i++)
             {
                 var param = parameters[i];
                 string paramValue = null;
-                
+
                 // 首先从查询字符串中查找
                 if (request.QueryString[param.Name] != null)
                 {
@@ -339,6 +444,7 @@ namespace LocalRestAPI
                         {
                             body = reader.ReadToEnd();
                         }
+
                         // 恢复原始位置
                         request.InputStream.Position = originalPosition;
                     }
@@ -351,14 +457,14 @@ namespace LocalRestAPI
                             body = System.Text.Encoding.UTF8.GetString(memoryStream.ToArray());
                         }
                     }
-                    
+
                     // 解析JSON请求体
                     if (!string.IsNullOrEmpty(body) && body.Trim().StartsWith("{"))
                     {
                         paramValue = ExtractValueFromJson(body, param.Name);
                     }
                 }
-                
+
                 // 转换参数类型
                 if (paramValue != null)
                 {
@@ -390,10 +496,10 @@ namespace LocalRestAPI
                     parameterValues[i] = param.DefaultValue ?? GetDefault(param.ParameterType);
                 }
             }
-            
+
             return parameterValues;
         }
-        
+
         private string ExtractValueFromJson(string json, string paramName)
         {
             // 简单的JSON解析，查找指定参数名的值
@@ -401,16 +507,16 @@ namespace LocalRestAPI
             string escapedParamName = paramName.Replace("\"", "\\\"");
             string pattern = $"\"{escapedParamName}\"\\s*:\\s*\"([^\"]*)\""; // 匹配字符串值
             var stringMatch = System.Text.RegularExpressions.Regex.Match(json, pattern);
-            
+
             if (stringMatch.Success)
             {
                 return stringMatch.Groups[1].Value;
             }
-            
+
             // 尝试匹配非字符串值（数字、布尔值等）
             pattern = $"\"{escapedParamName}\"\\s*:\\s*([^,}}]*)[\\s,}}]";
             var valueMatch = System.Text.RegularExpressions.Regex.Match(json, pattern);
-            
+
             if (valueMatch.Success)
             {
                 string value = valueMatch.Groups[1].Value.Trim();
@@ -419,124 +525,221 @@ namespace LocalRestAPI
                 {
                     value = value.Substring(1, value.Length - 2);
                 }
+
                 return value;
             }
-            
+
             return null;
         }
-        
+
         private object GetDefault(Type type)
         {
             if (type.IsValueType)
             {
                 return Activator.CreateInstance(type);
             }
+
             return null;
         }
-        
+
         private void SendResponse(HttpListenerResponse response, string content, int statusCode, string contentType = "text/plain")
         {
             response.StatusCode = statusCode;
             response.ContentType = contentType;
-            
+
             byte[] buffer = Encoding.UTF8.GetBytes(content);
             response.ContentLength64 = buffer.Length;
-            
+
             response.OutputStream.Write(buffer, 0, buffer.Length);
         }
-        
+
         public Dictionary<string, MethodInfo> GetRoutes()
+
         {
             return new Dictionary<string, MethodInfo>(routes);
         }
-        
+
+
+        /// <summary>
+        /// 获取所有注册的路由信息（包括预定义路由和反射路由）
+        /// </summary>
+        /// <returns>路由信息列表</returns>
+        public List<RouteInfo> GetAllRoutes()
+
+        {
+            var routeList = new List<RouteInfo>();
+
+
+            // 添加预定义路由
+
+            foreach (var route in predefinedRoutes)
+
+            {
+                routeList.Add(new RouteInfo
+
+                {
+                    method = route.Value.Method,
+
+                    path = route.Value.Path,
+
+                    handler = route.Value.ControllerName + "." + route.Value.MethodName 
+                });
+            }
+            
+            return routeList;
+        }
+
+
+        /// <summary>
+        /// 注册预定义路由
+        /// </summary>
+        /// <param name="method">HTTP方法</param>
+        /// <param name="path">路由路径</param>
+        /// <param name="handler">API处理器</param>
+        /// <param name="parameterParser">参数解析器</param>
+        /// <param name="controllerName">控制器名称</param>
+        /// <param name="methodName">方法名称</param>
+        public void RegisterPredefinedRoute(string method, string path, IApiHandler handler, IApiParameterParser parameterParser, string controllerName, string methodName)
+
+        {
+            string routeKey = $"{method} {path}";
+
+            predefinedRoutes[routeKey] = new PredefinedApiRoute(method, path, handler, parameterParser, controllerName, methodName);
+
+            RestApiMainWindow.Log($"注册预定义API路由: {routeKey} -> {controllerName}.{methodName}");
+        }
+
         private void RegisterApiControllers()
+
         {
             routes.Clear();
+
             controllerTypes.Clear();
-            
-            // 查找所有标记了ApiRouteAttribute的类和方法
+
+            predefinedRoutes.Clear();
+
+
+            // 首先尝试使用预定义路由注册器
+
+            try
+
+            {
+                // 使用反射调用预定义路由注册器（这个调用只会在代码生成后存在）
+
+                var registrarType = Type.GetType("LocalRestAPI.PredefinedRouteRegistrar");
+
+                if (registrarType != null)
+
+                {
+                    var registerMethod = registrarType.GetMethod("RegisterRoutes");
+
+                    if (registerMethod != null)
+
+                    {
+                        registerMethod.Invoke(null, new object[] { this });
+
+                        RestApiMainWindow.Log($"已注册 {predefinedRoutes.Count} 个预定义API路由");
+
+                        return; // 如果成功注册了预定义路由，则不再使用反射
+                    }
+                }
+            }
+
+            catch (Exception ex)
+
+            {
+                RestApiMainWindow.Log($"注册预定义路由失败: {ex.Message}，将使用反射方式注册路由");
+            }
+
+
+            // 查找所有标记了ApiRouteAttribute的类和方法（原始反射方式，作为后备方案）
+
             var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+
             foreach (var assembly in assemblies)
+
             {
                 try
+
                 {
                     foreach (var type in assembly.GetTypes())
+
                     {
                         if (type.Namespace != null && type.Namespace.StartsWith("LocalRestAPI"))
+
                         {
                             // 检查类中的所有方法
+
                             foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+
                             {
                                 var routeAttr = method.GetCustomAttribute<ApiRouteAttribute>();
+
                                 if (routeAttr != null)
+
                                 {
                                     string routeKey = $"{routeAttr.Method} {routeAttr.Path}";
-                                    
+
+
                                     // 注册路由
+
                                     routes[routeKey] = method;
+
                                     controllerTypes[type.FullName] = type;
-                                    
+
+
                                     RestApiMainWindow.Log($"注册API路由: {routeKey} -> {type.Name}.{method.Name}");
                                 }
                             }
                         }
                     }
                 }
+
                 catch (ReflectionTypeLoadException)
+
                 {
                     // 忽略无法加载类型的程序集
                 }
             }
-            
+
+
             // 注册内置路由
-            RestApiMainWindow.Log($"已注册 {routes.Count} 个API路由");
+
+            RestApiMainWindow.Log($"已注册 {routes.Count} 个API路由（使用反射方式）");
         }
-        
+
         public bool IsRunning()
 
         {
-
             return isRunning;
-
         }
 
-        
 
         private bool IsValidUrl(string url)
 
         {
-
             try
 
             {
-
                 var uri = new Uri(url);
 
                 return uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps;
-
             }
 
             catch
 
             {
-
                 return false;
-
             }
-
         }
 
-        
 
         private string GetHttpListenerErrorMessage(HttpListenerException ex)
 
         {
-
             switch (ex.ErrorCode)
 
             {
-
                 case 5: // ERROR_ACCESS_DENIED
 
                     return "访问被拒绝。可能需要管理员权限，或URL保留已由其他进程占用。错误代码: 5";
@@ -552,69 +755,51 @@ namespace LocalRestAPI
                 default:
 
                     return $"HTTP监听器错误 (错误代码: {ex.ErrorCode}): {ex.Message}。" +
-
-                          "请确保您使用正确的端口，没有其他实例在运行，并且有足够的权限。";
-
+                           "请确保您使用正确的端口，没有其他实例在运行，并且有足够的权限。";
             }
-
         }
-
     }
+}
+// API路由属性
 
-    
+[AttributeUsage(AttributeTargets.Method)]
+public class ApiRouteAttribute : Attribute
 
-    // API路由属性
+{
+    public string Method { get; set; }
 
-    [AttributeUsage(AttributeTargets.Method)]
+    public string Path { get; set; }
 
-    public class ApiRouteAttribute : Attribute
+
+    public ApiRouteAttribute(string method, string path)
 
     {
+        Method = method.ToUpper();
 
-        public string Method { get; set; }
-
-        public string Path { get; set; }
-
-        
-
-        public ApiRouteAttribute(string method, string path)
-
-        {
-
-            Method = method.ToUpper();
-
-            Path = path;
-
-        }
-
+        Path = path;
     }
+}
 
-    
 
-    // GET请求属性
+// GET请求属性
 
-    [AttributeUsage(AttributeTargets.Method)]
+[AttributeUsage(AttributeTargets.Method)]
+public class GetRouteAttribute : ApiRouteAttribute
 
-    public class GetRouteAttribute : ApiRouteAttribute
-
+{
+    public GetRouteAttribute(string path) : base("GET", path)
     {
-
-        public GetRouteAttribute(string path) : base("GET", path) { }
-
     }
+}
 
-    
 
-    // POST请求属性
+// POST请求属性
 
-    [AttributeUsage(AttributeTargets.Method)]
+[AttributeUsage(AttributeTargets.Method)]
+public class PostRouteAttribute : ApiRouteAttribute
 
-    public class PostRouteAttribute : ApiRouteAttribute
-
+{
+    public PostRouteAttribute(string path) : base("POST", path)
     {
-
-        public PostRouteAttribute(string path) : base("POST", path) { }
-
     }
-
 }

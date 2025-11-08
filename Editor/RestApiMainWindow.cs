@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using UnityEditor;
 using UnityEngine;
 
@@ -120,7 +121,7 @@ namespace LocalRestAPI
 
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.PrefixLabel("服务状态");
-            EditorGUILayout.LabelField(serviceStatus, isServiceRunning ? "BoldLabel" : "Label");
+            EditorGUILayout.LabelField(serviceStatus, isServiceRunning ? EditorStyles.boldLabel : EditorStyles.label);
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.BeginHorizontal();
@@ -222,12 +223,12 @@ namespace LocalRestAPI
                 for (int i = 0; i < registeredRoutes.Count; i++)
                 {
                     var route = registeredRoutes[i];
-                    
+
                     // 解析路由信息 "GET /api/sample/hello ———— SampleController.Hello"
                     var parts = route.Split(new string[] { " ———— " }, StringSplitOptions.None);
                     string leftPart = parts.Length > 0 ? parts[0] : "";
                     string rightPart = parts.Length > 1 ? parts[1] : "";
-                    
+
                     // 创建左右对齐的显示
                     GUIStyle leftStyle = new GUIStyle(EditorStyles.label);
                     leftStyle.alignment = TextAnchor.MiddleLeft;
@@ -235,7 +236,7 @@ namespace LocalRestAPI
                     GUIStyle rightStyle = new GUIStyle(EditorStyles.label);
                     rightStyle.alignment = TextAnchor.MiddleRight;
                     rightStyle.normal.textColor = Color.gray;
-                    
+
                     // 检查是否鼠标悬停在该路由上
                     var rect = EditorGUILayout.GetControlRect();
                     if (GUI.Button(rect, "", GUIStyle.none))
@@ -243,11 +244,11 @@ namespace LocalRestAPI
                         // 解析路由信息并尝试打开对应的代码文件
                         OpenRouteCode(registeredRoutes[i]);
                     }
-                    
+
                     // 绘制左右对齐的文本
                     var leftRect = new Rect(rect.x, rect.y, rect.width * 0.6f, rect.height);
                     var rightRect = new Rect(rect.x + rect.width * 0.6f, rect.y, rect.width * 0.4f, rect.height);
-                    
+
                     EditorGUI.LabelField(leftRect, leftPart, leftStyle);
                     EditorGUI.LabelField(rightRect, rightPart, rightStyle);
 
@@ -262,11 +263,35 @@ namespace LocalRestAPI
             EditorGUILayout.EndScrollView();
 
             EditorGUILayout.BeginHorizontal();
+
             if (GUILayout.Button("刷新路由列表"))
             {
                 RefreshRouteList();
             }
-            
+
+
+            if (GUILayout.Button("生成API代码"))
+
+            {
+                try
+
+                {
+                    ApiCodeGenerator.GenerateApiHandlerCode();
+
+                    AddLog("API代码生成完成");
+
+                    // 生成代码后刷新路由列表
+
+                    RefreshRouteList();
+                }
+
+                catch (Exception ex)
+
+                {
+                    AddLog($"API代码生成失败: {ex.Message}");
+                }
+            }
+
 
             EditorGUILayout.EndHorizontal();
 
@@ -365,33 +390,38 @@ namespace LocalRestAPI
         }
 
         private void RefreshRouteList()
+
         {
             registeredRoutes.Clear();
 
+
             if (apiServer != null)
+
             {
-                var routes = apiServer.GetRoutes();
+                var routes = apiServer.GetAllRoutes();
+
                 foreach (var route in routes)
+
                 {
-                    var parts = route.Key.Split(' ');
-                    registeredRoutes.Add($"{parts[0]} {parts[1]} ———— {route.Value.DeclaringType.Name}.{route.Value.Name}");
+                    registeredRoutes.Add($"{route.method} {route.path} ———— {route.handler}");
                 }
+
 
                 AddLog($"路由列表已刷新，共 {routes.Count} 个路由");
             }
-            else
-            {
-                // 如果服务未启动，显示示例路由
-                registeredRoutes.Add("GET /api/sample/hello ———— SampleController.Hello");
-                registeredRoutes.Add("POST /api/sample/echo ———— SampleController.Echo");
-                registeredRoutes.Add("GET /api/sample/random ———— SampleController.GetRandom");
-                registeredRoutes.Add("GET /api/sample/status ———— SampleController.GetStatus");
-                registeredRoutes.Add("GET /api/unity/scene ———— UnityController.GetActiveScene");
-                registeredRoutes.Add("GET /api/unity/objects ———— UnityController.GetObjectsInScene");
-                registeredRoutes.Add("POST /api/unity/log ———— UnityController.LogMessage");
-                registeredRoutes.Add("GET /api/routes ———— 内置路由");
 
-                AddLog("显示示例路由列表");
+            else
+
+            {
+                var routeList = GetDefinedRoutes();
+
+                foreach (var route in routeList)
+
+                {
+                    registeredRoutes.Add($"{route.method} {route.path} ———— {route.handler}");
+                }
+
+                AddLog("路由列表已刷新，但服务未启动，仅显示已定义的路由");
             }
         }
 
@@ -555,8 +585,84 @@ namespace LocalRestAPI
         }
 
         public static bool IsServiceRunning()
+
         {
             return window?.isServiceRunning ?? false;
         }
+
+
+        /// <summary>
+        /// 获取所有定义的路由（无需启动服务器）
+        /// </summary>
+        /// <returns>路由信息列表</returns>
+        public static List<RouteInfo> GetDefinedRoutes()
+
+        {
+            var routeList = new List<RouteInfo>();
+
+
+            // 查找所有标记了ApiRouteAttribute的类和方法
+
+            var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+
+            foreach (var assembly in assemblies)
+
+            {
+                try
+
+                {
+                    foreach (var type in assembly.GetTypes())
+
+                    {
+                        if (type.Namespace != null && type.Namespace.StartsWith("LocalRestAPI"))
+
+                        {
+                            // 检查类中的所有方法
+
+                            foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+
+                            {
+                                var routeAttr = method.GetCustomAttribute<ApiRouteAttribute>();
+
+                                if (routeAttr != null)
+
+                                {
+                                    routeList.Add(new RouteInfo
+
+                                    {
+                                        method = routeAttr.Method,
+
+                                        path = routeAttr.Path,
+
+                                        handler = type.Name + "." + method.Name
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                catch (ReflectionTypeLoadException)
+
+                {
+                    // 忽略无法加载类型的程序集
+                }
+            }
+
+
+            return routeList;
+        }
+    }
+
+
+    [Serializable]
+    public class RouteInfo
+
+    {
+        public string method;
+
+        public string path;
+
+        public string handler;
     }
 }
