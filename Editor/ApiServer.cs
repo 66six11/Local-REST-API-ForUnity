@@ -22,9 +22,9 @@ namespace LocalRestAPI
 
         private bool isRunning = false;
 
-        private string accessToken;
+        public string accessToken;
 
-        private string serverUrl;
+        public string serverUrl;
 
 
         // 存储API路由
@@ -169,22 +169,35 @@ namespace LocalRestAPI
         }
 
         private void ProcessRequest(HttpListenerContext context)
+
         {
             var request = context.Request;
+
             var response = context.Response;
 
+
             DateTime startTime = DateTime.Now;
+
             string method = request.HttpMethod;
+
             string url = request.Url.ToString();
+
             string path = request.Url.AbsolutePath;
+
             string clientIp = request.RemoteEndPoint?.ToString();
 
-            // 检查是否为已注册的路由
+
+            // 检查是否为已注册的路由（包括预定义路由和反射路由）
+
             string routeKey = $"{method} {path}";
-            bool isRegisteredRoute = routes.ContainsKey(routeKey);
+
+            bool isRegisteredRoute = routes.ContainsKey(routeKey) || predefinedRoutes.ContainsKey(routeKey);
+
 
             // 如果是已注册路由，则记录请求开始
+
             if (isRegisteredRoute)
+
             {
                 ApiLogger.Instance.LogRequest(method, url, clientIp, null, "");
             }
@@ -205,7 +218,8 @@ namespace LocalRestAPI
                 }
 
                 // 处理API请求
-                HandleApiRequest(request, response, isRegisteredRoute);
+
+                HandleApiRequest(request, response, startTime, clientIp, isRegisteredRoute);
             }
             catch (Exception ex)
             {
@@ -257,7 +271,7 @@ namespace LocalRestAPI
             return token == accessToken;
         }
 
-        private void HandleApiRequest(HttpListenerRequest request, HttpListenerResponse response, bool isRegisteredRoute = true)
+        private void HandleApiRequest(HttpListenerRequest request, HttpListenerResponse response, DateTime startTime, string clientIp, bool isRegisteredRoute = true)
 
         {
             string path = request.Url.AbsolutePath;
@@ -280,23 +294,46 @@ namespace LocalRestAPI
 
             string routeKey = $"{method} {path}";
 
+
             if (predefinedRoutes.ContainsKey(routeKey))
+
 
             {
                 var predefinedRoute = predefinedRoutes[routeKey];
 
+
                 bool handled = predefinedRoute.Handler.HandleRequest(request, response);
 
+
+                // 如果是已注册路由，则记录性能指标和请求完成
+
+                if (isRegisteredRoute)
+
+                {
+                    DateTime endTime = DateTime.Now;
+
+                    double duration = (endTime - startTime).TotalMilliseconds;
+
+                    ApiPerformanceMonitor.Instance.RecordApiCall(method, path, response.StatusCode, duration, clientIp, false);
+
+                    ApiLogger.Instance.LogResponse("", response.StatusCode, null, "", duration);
+                }
+
+
                 if (handled)
+
 
                 {
                     return;
                 }
 
+
                 else
+
 
                 {
                     SendResponse(response, "Method execution error", 500);
+
 
                     return;
                 }
@@ -406,14 +443,6 @@ namespace LocalRestAPI
             string jsonResponse = JsonUtility.ToJson(new { routes = routeList });
 
             SendResponse(response, jsonResponse, 200, "application/json");
-        }
-
-        [Serializable]
-        public class RouteInfo
-        {
-            public string method;
-            public string path;
-            public string handler;
         }
 
         private object[] GetParametersFromRequest(HttpListenerRequest request, MethodInfo methodInfo)
@@ -582,10 +611,10 @@ namespace LocalRestAPI
 
                     path = route.Value.Path,
 
-                    handler = route.Value.ControllerName + "." + route.Value.MethodName 
+                    handler = route.Value.ControllerName + "." + route.Value.MethodName
                 });
             }
-            
+
             return routeList;
         }
 

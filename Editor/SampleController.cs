@@ -30,7 +30,7 @@ namespace LocalRestAPI
         }
         
         [GetRoute("/api/sample/random")]
-        public RandomResponse GetRandom(int min = 0, int max = 100)
+       public RandomResponse GetRandom(int min = 0, int max = 100)
         {
             var random = new System.Random();
             return new RandomResponse

@@ -12,7 +12,7 @@ namespace LocalRestAPI
         private static RestApiMainWindow window;
 
         // API服务器实例
-        private ApiServer apiServer;
+        public ApiServer apiServer;
 
         // 服务状态
         private bool isServiceRunning = false;
@@ -44,6 +44,11 @@ namespace LocalRestAPI
         {
             window = GetWindow<RestApiMainWindow>("Local REST API");
             window.minSize = new Vector2(600, 400);
+        }
+        
+        public void ShowApiTestWindow()
+        {
+            ApiTestWindow.ShowWindow(apiServer);
         }
 
         private void OnEnable()
@@ -151,6 +156,14 @@ namespace LocalRestAPI
                     StartService();
                 }
             }
+
+            // 添加测试API按钮，只有在服务运行时才启用
+            EditorGUI.BeginDisabledGroup(!isServiceRunning);
+            if (GUILayout.Button("测试API", GUILayout.Height(30)))
+            {
+                ApiTestWindow.ShowWindow(apiServer);
+            }
+            EditorGUI.EndDisabledGroup();
 
             EditorGUILayout.EndHorizontal();
 
@@ -585,11 +598,30 @@ namespace LocalRestAPI
         }
 
         public static bool IsServiceRunning()
-
         {
-            return window?.isServiceRunning ?? false;
+            // 如果窗口实例存在，检查其服务状态
+            if (window != null)
+            {
+                return window.isServiceRunning;
+            }
+            
+            // 否则返回false，因为无法确定服务器状态
+            return false;
+        }
+        
+        public static ApiServer GetApiServer()
+        {
+            return window?.apiServer;
         }
 
+        public static string GetServerUrl()
+        {
+            return window?.serverUrl ?? "http://localhost:8080";
+        }
+        public static List<RouteInfo> GetRegisteredRoutes()
+        {
+            return window?.apiServer?.GetAllRoutes() ?? new List<RouteInfo>();
+        }
 
         /// <summary>
         /// 获取所有定义的路由（无需启动服务器）
@@ -652,6 +684,7 @@ namespace LocalRestAPI
 
             return routeList;
         }
+        
     }
 
 
