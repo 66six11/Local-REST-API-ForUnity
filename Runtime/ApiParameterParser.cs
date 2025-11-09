@@ -41,44 +41,66 @@ namespace LocalRestAPI
                                || request.HttpMethod.Equals("PUT", StringComparison.OrdinalIgnoreCase)
                                || request.HttpMethod.Equals("PATCH", StringComparison.OrdinalIgnoreCase);
 
-            JObject jsonObj = null;
-            bool isJson = false;
-            bool isForm = false;
-
-            if (canHaveBody && request.ContentLength64 > 0)
-            {
-                body = ReadRequestBody(request);
-
-                if (!string.IsNullOrWhiteSpace(body))
-                {
-                    string contentType = request.ContentType ?? string.Empty;
-
-                    isJson = contentType.IndexOf("application/json", StringComparison.OrdinalIgnoreCase) >= 0;
-                    isForm = contentType.IndexOf("application/x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase) >= 0;
-
-                    if (isJson)
-                    {
-                        try
-                        {
-                            // 仅当顶层是对象时才有意义（顶层数组时无法按键名取值）
-                            var token = JToken.Parse(body);
-                            if (token is JObject jo)
-                            {
-                                jsonObj = jo;
-                            }
-                            else
-                            {
-                                isJson = false;
-                            }
-                        }
-                        catch
-                        {
-                            // JSON解析失败，不抛异常，后续将无法从 JSON 获取参数
-                            jsonObj = null;
-                            isJson = false;
-                        }
-                    }
-                }
+            JObject jsonObj = null;
+            bool isJson = false;
+            bool isForm = false;
+
+            if (canHaveBody && request.ContentLength64 > 0)
+            {
+                body = ReadRequestBody(request);
+
+                if (!string.IsNullOrWhiteSpace(body))
+                {
+                    string contentType = request.ContentType ?? string.Empty;
+
+                    isJson = contentType.IndexOf("application/json", StringComparison.OrdinalIgnoreCase) >= 0;
+                    isForm = contentType.IndexOf("application/x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                    if (isJson)
+                    {
+                        try
+                        {
+                            // 仅当顶层是对象时才有意义（顶层数组时无法按键名取值）
+                            var token = JToken.Parse(body);
+                            if (token is JObject jo)
+                            {
+                                jsonObj = jo;
+                            }
+                            else
+                            {
+                                isJson = false;
+                            }
+                        }
+                        catch
+                        {
+                            // JSON解析失败，不抛异常，后续将无法从 JSON 获取参数
+                            jsonObj = null;
+                            isJson = false;
+                        }
+                    }
+                    // 如果Content-Type未设置为JSON，但body看起来像JSON，则尝试解析
+                    else if (string.IsNullOrEmpty(request.ContentType) || !isForm)
+                    {
+                        // 检查body是否以{或[开头（可能是JSON）
+                        string trimmedBody = body.Trim();
+                        if (trimmedBody.StartsWith("{") || trimmedBody.StartsWith("["))
+                        {
+                            try
+                            {
+                                var token = JToken.Parse(body);
+                                if (token is JObject jo)
+                                {
+                                    jsonObj = jo;
+                                    isJson = true;
+                                }
+                            }
+                            catch
+                            {
+                                // 如果解析失败，保持原有逻辑
+                            }
+                        }
+                    }
+                }
             }
 
             for (int i = 0; i < paramTypes.Length; i++)

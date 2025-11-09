@@ -683,14 +683,14 @@ namespace LocalRestAPI
 
                 // 构建 HttpRequestMessage
                 var requestMessage = new HttpRequestMessage(new HttpMethod(method), BuildFinalUrlWithQuery(baseUrl, method));
-
+              
                 // 设置授权头（避免静态 HttpClient DefaultRequestHeaders 并发污染）
                 var token = !string.IsNullOrEmpty(accessToken) ? accessToken : apiServer?.accessToken;
                 if (!string.IsNullOrEmpty(token))
                 {
                     requestMessage.Headers.Authorization =
                         new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-                }
+                }   
 
                 // 如果是需要 body 的方法
                 if (method == "POST" || method == "PUT" || method == "PATCH")
@@ -700,7 +700,8 @@ namespace LocalRestAPI
                     {
                         jsonBody = "{}";
                     }
-                    Debug.Log("构建的body"+ jsonBody );
+                    Debug.Log("构建的body"+ jsonBody ); 
+                    //设置Content-Type头部
                     requestMessage.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
                 }
 
