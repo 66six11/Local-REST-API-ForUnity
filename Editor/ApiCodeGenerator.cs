@@ -24,9 +24,9 @@ namespace LocalRestAPI
                 var routes = ApiRouteFinder.FindApiRoutes();
                 GenerateHandlerClasses(routes);
                 RouteRegistrarGenerator.GenerateRouteRegistrationCode(routes);
-                
+
                 Debug.Log($"已生成API处理代码，共处理 {routes.Count} 个路由");
-                
+
                 // 刷新AssetDatabase以确保新生成的文件被Unity识别
                 AssetDatabase.Refresh();
             }
@@ -41,12 +41,11 @@ namespace LocalRestAPI
         /// </summary>
         private static void GenerateHandlerClasses(List<(string method, string path, MethodInfo methodInfo, Type controllerType)> routes)
         {
-            var generatedCode = new System.Text.StringBuilder();
+            var generatedCode = new StringBuilder();
             generatedCode.AppendLine("using System;");
             generatedCode.AppendLine("using System.Net;");
             generatedCode.AppendLine("using System.IO;");
             generatedCode.AppendLine("using System.Text;");
-            generatedCode.AppendLine("using System.Text.RegularExpressions;");
             generatedCode.AppendLine("using LocalRestAPI.Runtime;");
             generatedCode.AppendLine("using UnityEngine;");
             generatedCode.AppendLine();
@@ -57,59 +56,54 @@ namespace LocalRestAPI
             generatedCode.AppendLine("    /// </summary>");
             generatedCode.AppendLine("    public static class PredefinedApiHandlers");
             generatedCode.AppendLine("    {");
-            
+
             // 为每个API路由生成对应的处理器类和参数解析器类
             foreach (var (method, path, methodInfo, controllerType) in routes)
             {
                 var handlerName = GenerateHandlerName(method, path, methodInfo);
                 var parameterParserName = GenerateParameterParserName(method, path, methodInfo);
-                
-                // 生成参数解析器类
+
+                // 生成参数解析器类（生成硬编码的签名数组 -> 调用共享解析器）
                 ParameterParserGenerator.GenerateParameterParserClass(generatedCode, parameterParserName, methodInfo);
-                
+
                 // 生成API处理器类
                 HandlerClassGenerator.GenerateHandlerClass(generatedCode, handlerName, methodInfo, controllerType, parameterParserName);
             }
-            
+
             generatedCode.AppendLine("    }");
             generatedCode.AppendLine("}");
-            
+
             // 写入文件
-            var outputPath = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Assets", "LocalRestAPI", "Editor", "GeneratedApiHandlers.cs");
+            var outputPath = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Assets", "LocalRestAPI", "Runtime", "GeneratedApiHandlers.cs");
             File.WriteAllText(outputPath, generatedCode.ToString(), Encoding.UTF8);
         }
 
         /// <summary>
-        /// 生成处理器类名
+        /// 生成处理器类名（追加一个短哈希降低冲突风险）
         /// </summary>
         public static string GenerateHandlerName(string method, string path, MethodInfo methodInfo)
         {
-            // 生成安全的类名，将特殊字符替换为下划线
             var cleanPath = new string(path.Where(c => char.IsLetterOrDigit(c) || c == '_').ToArray());
             cleanPath = cleanPath.Replace("/", "_");
-            return $"{method}{cleanPath}Handler";
+            return $"{method}{cleanPath}Handler_{GetShortHash(path)}";
         }
 
         /// <summary>
-        /// 生成参数解析器类名
+        /// 生成参数解析器类名（同样追加短哈希）
         /// </summary>
         public static string GenerateParameterParserName(string method, string path, MethodInfo methodInfo)
         {
             var cleanPath = new string(path.Where(c => char.IsLetterOrDigit(c) || c == '_').ToArray());
             cleanPath = cleanPath.Replace("/", "_");
-            return $"{method}{cleanPath}ParameterParser";
+            return $"{method}{cleanPath}ParameterParser_{GetShortHash(path)}";
         }
-    }
 
-    /// <summary>
-    /// 自动代码生成工具菜单
-    /// </summary>
-    public class ApiCodeGenerationMenu
-    {
-        [MenuItem("Tools/Local REST API/生成API处理代码")]
-        public static void GenerateApiCode()
+        private static string GetShortHash(string input)
         {
-            ApiCodeGenerator.GenerateApiHandlerCode();
+            using var sha = System.Security.Cryptography.SHA1.Create();
+            var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(input ?? ""));
+            // 取前 4 字节 -> 8 个十六进制字符
+            return BitConverter.ToString(bytes, 0, 4).Replace("-", "");
         }
     }
 }
