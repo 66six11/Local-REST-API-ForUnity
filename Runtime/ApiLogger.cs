@@ -91,12 +91,12 @@ namespace LocalRestAPI
         {
             lock (lockObject)
             {
-                instance.logEntries.Add(entry);
+                Instance.logEntries.Add(entry);
 
                 // 限制日志条目数量
-                if (instance.logEntries.Count > instance.maxLogEntries)
+                if (Instance.logEntries.Count > Instance.maxLogEntries)
                 {
-                    instance.logEntries.RemoveAt(0);
+                    Instance.logEntries.RemoveAt(0);
                 }
             }
 

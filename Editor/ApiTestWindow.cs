@@ -1,9 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Net;
+using System.Globalization;
+using System.Net.Http;
 using System.Reflection;
 using System.Text;
+using System.Threading.Tasks;
 using LocalRestAPI.Runtime;
 using UnityEditor;
 using UnityEngine;
@@ -14,17 +15,23 @@ namespace LocalRestAPI
     {
         private static ApiTestWindow window;
 
+        // HTTP客户端用于异步请求（全局复用，设置统一超时）
+        private static readonly HttpClient httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(30)
+        };
+
         // API服务器实例
         private ApiServer apiServer;
 
         // API路由选择相关
-        private List<RouteInfo> registeredRoutes = new List<RouteInfo>();
+        private readonly List<RouteInfo> registeredRoutes = new List<RouteInfo>();
         private int selectedRouteIndex = 0;
         private string[] routeDisplayNames;
 
         // 请求参数相关
-        private Dictionary<string, string> parameterValues = new Dictionary<string, string>();
-        private List<ApiParameterInfo> currentRouteParameters = new List<ApiParameterInfo>();
+        private readonly Dictionary<string, string> parameterValues = new Dictionary<string, string>();
+        private readonly List<ApiParameterInfo> currentRouteParameters = new List<ApiParameterInfo>();
 
         // 请求结果相关
         private string responseContent = "";
@@ -32,7 +39,7 @@ namespace LocalRestAPI
         private bool showResponse = false;
         private Vector2 responseScrollPosition;
 
-        // 请求设置相关
+        // 请求设置相关（保留扩展位）
         private string customUrl = "";
         private string accessToken = "";
         private Vector2 parameterScrollPosition;
@@ -41,7 +48,7 @@ namespace LocalRestAPI
         public class ApiParameterInfo
         {
             public string Name;
-            public string Type;
+            public string Type; // 友好类型名（string/int/float/double/bool/long/short/byte/char/decimal...）
             public string DefaultValue;
             public bool HasDefaultValue;
         }
@@ -139,7 +146,7 @@ namespace LocalRestAPI
             EditorGUILayout.BeginVertical(GUI.skin.box);
             GUILayout.Label("请求参数", EditorStyles.boldLabel);
 
-            parameterScrollPosition = EditorGUILayout.BeginScrollView(parameterScrollPosition, GUILayout.Height(150));
+            parameterScrollPosition = EditorGUILayout.BeginScrollView(parameterScrollPosition, GUILayout.Height(180));
 
             if (registeredRoutes.Count > 0 && selectedRouteIndex >= 0 && selectedRouteIndex < registeredRoutes.Count)
             {
@@ -169,7 +176,7 @@ namespace LocalRestAPI
                 EditorGUILayout.BeginHorizontal();
 
                 // 参数名称和类型（左对齐）
-                EditorGUILayout.LabelField($"{param.Name} ({param.Type})", GUILayout.Width(150));
+                EditorGUILayout.LabelField($"{param.Name} ({param.Type})", GUILayout.Width(180));
 
                 string valueKey = param.Name;
                 string currentValue = parameterValues.ContainsKey(valueKey) ? parameterValues[valueKey] : "";
@@ -182,7 +189,7 @@ namespace LocalRestAPI
                 // 显示默认值提示
                 if (param.HasDefaultValue)
                 {
-                    EditorGUILayout.LabelField($"默认: {param.DefaultValue}", EditorStyles.miniLabel, GUILayout.Width(80));
+                    EditorGUILayout.LabelField($"默认: {param.DefaultValue}", EditorStyles.miniLabel, GUILayout.Width(120));
                 }
 
                 EditorGUILayout.EndHorizontal();
@@ -204,14 +211,18 @@ namespace LocalRestAPI
                 return !param.HasDefaultValue;
             }
 
-            // 根据参数类型进行验证
+            // 根据参数类型进行验证（注意使用 InvariantCulture）
             switch (param.Type)
             {
                 case "int":
-                    return int.TryParse(value, out _);
+                case "long":
+                case "short":
+                case "byte":
+                    return long.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out _);
                 case "float":
                 case "double":
-                    return float.TryParse(value, out _);
+                case "decimal":
+                    return double.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out _);
                 case "bool":
                     return bool.TryParse(value, out _);
                 default:
@@ -228,22 +239,30 @@ namespace LocalRestAPI
             {
                 bool boolValue = false;
                 bool.TryParse(currentValue, out boolValue);
-                boolValue = EditorGUILayout.Toggle(boolValue, GUILayout.Width(15));
-                newValue = boolValue.ToString().ToLower();
+                boolValue = EditorGUILayout.Toggle(boolValue, GUILayout.Width(18));
+                newValue = boolValue ? "true" : "false";
             }
-            else if (param.Type == "int")
+            else if (param.Type == "int" || param.Type == "long" || param.Type == "short" || param.Type == "byte")
             {
-                int intValue = 0;
-                int.TryParse(currentValue, out intValue);
-                intValue = EditorGUILayout.IntField(intValue);
-                newValue = intValue.ToString();
+                long longValue = 0;
+                long.TryParse(currentValue, NumberStyles.Any, CultureInfo.InvariantCulture, out longValue);
+                // 用 IntField 显示（如需 long 可自定义），这里简单转换
+                int intShown = (int)Mathf.Clamp(longValue, int.MinValue, int.MaxValue);
+                intShown = EditorGUILayout.IntField(intShown);
+                newValue = intShown.ToString(CultureInfo.InvariantCulture);
             }
-            else if (param.Type == "float" || param.Type == "double")
+            else if (param.Type == "float" || param.Type == "double" || param.Type == "decimal")
             {
-                float floatValue = 0f;
-                float.TryParse(currentValue, out floatValue);
-                floatValue = EditorGUILayout.FloatField(floatValue);
-                newValue = floatValue.ToString();
+                double dblValue = 0.0;
+                double.TryParse(currentValue, NumberStyles.Any, CultureInfo.InvariantCulture, out dblValue);
+                float shown = (float)dblValue;
+                shown = EditorGUILayout.FloatField(shown);
+                newValue = ((double)shown).ToString(CultureInfo.InvariantCulture);
+            }
+            else if (param.Type == "char")
+            {
+                string s = EditorGUILayout.TextField(currentValue);
+                newValue = string.IsNullOrEmpty(s) ? "" : s.Substring(0, 1);
             }
             else
             {
@@ -257,18 +276,6 @@ namespace LocalRestAPI
         {
             EditorGUILayout.BeginVertical(GUI.skin.box);
             GUILayout.Label("请求设置", EditorStyles.boldLabel);
-
-            // 自定义URL
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.PrefixLabel("自定义URL");
-            customUrl = EditorGUILayout.TextField(customUrl);
-            EditorGUILayout.EndHorizontal();
-
-            // 访问令牌
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.PrefixLabel("访问令牌");
-            accessToken = EditorGUILayout.TextField(accessToken);
-            EditorGUILayout.EndHorizontal();
 
             // 显示当前服务器信息
             string currentServerUrl = "http://localhost:8080";
@@ -318,8 +325,8 @@ namespace LocalRestAPI
             {
                 EditorGUILayout.LabelField("状态码:", responseStatusCode.ToString());
 
-                responseScrollPosition = EditorGUILayout.BeginScrollView(responseScrollPosition, GUILayout.Height(150));
-                EditorGUILayout.TextArea(responseContent, GUILayout.ExpandHeight(true));
+                responseScrollPosition = EditorGUILayout.BeginScrollView(responseScrollPosition, GUILayout.Height(180));
+                EditorGUILayout.TextArea(responseContent ?? "", GUILayout.ExpandHeight(true));
                 EditorGUILayout.EndScrollView();
             }
             else
@@ -339,12 +346,12 @@ namespace LocalRestAPI
                 // 只使用传入的API服务器实例
                 if (apiServer != null && apiServer.isRunning)
                 {
-                    registeredRoutes = apiServer.GetAllRoutes();
+                    registeredRoutes.AddRange(apiServer.GetAllRoutes());
                 }
                 else
                 {
                     // 如果没有API服务器实例，使用定义的路由
-                    registeredRoutes = GetDefinedRoutes();
+                    registeredRoutes.AddRange(GetDefinedRoutes());
                 }
 
                 // 创建显示名称数组
@@ -378,7 +385,6 @@ namespace LocalRestAPI
         /// <summary>
         /// 获取所有定义的路由（无需启动服务器）
         /// </summary>
-        /// <returns>路由信息列表</returns>
         private List<RouteInfo> GetDefinedRoutes()
         {
             var routeList = new List<RouteInfo>();
@@ -489,7 +495,7 @@ namespace LocalRestAPI
                     foreach (var type in assembly.GetTypes())
                     {
                         // 检查类型名是否匹配，支持完整的命名空间匹配
-                        if (type.Name == controllerName || type.FullName.EndsWith("." + controllerName))
+                        if (type.Name == controllerName || (type.FullName != null && type.FullName.EndsWith("." + controllerName)))
                         {
                             // 检查是否在LocalRestAPI命名空间下
                             if (type.Namespace != null && type.Namespace.StartsWith("LocalRestAPI"))
@@ -507,9 +513,6 @@ namespace LocalRestAPI
 
             return null;
         }
-
-        // 格式化默认值以适应UI显示
-
 
         private string GetFriendlyTypeName(Type type)
         {
@@ -530,20 +533,214 @@ namespace LocalRestAPI
         {
             if (defaultValue == null) return "";
 
-            // 对于某些类型，进行特殊格式化
             if (paramType == typeof(bool))
             {
-                return defaultValue.ToString().ToLower();
+                return defaultValue.ToString().ToLowerInvariant();
+            }
+
+            if (paramType == typeof(float) || paramType == typeof(double) || paramType == typeof(decimal))
+            {
+                return Convert.ToString(defaultValue, CultureInfo.InvariantCulture);
+            }
+
+            if (paramType == typeof(int) || paramType == typeof(long) || paramType == typeof(short) || paramType == typeof(byte))
+            {
+                return Convert.ToString(defaultValue, CultureInfo.InvariantCulture);
             }
 
             return defaultValue.ToString();
         }
 
-        private void TestConnection()
+        // 统一构建最终 URL（不在这里加 GET 查询参数）
+        private string BuildBaseRequestUrl(RouteInfo selectedRoute)
         {
-            string serverUrl = "http://localhost:8000";
+            string baseUrl = (apiServer != null && apiServer.isRunning)
+                ? apiServer.serverUrl
+                : "http://localhost:8080";
 
-            // 从API服务器实例获取URL
+            baseUrl = baseUrl.TrimEnd('/');
+            string path = selectedRoute.path.StartsWith("/") ? selectedRoute.path : "/" + selectedRoute.path;
+            return baseUrl + path;
+        }
+
+        // 构建 GET 查询参数（仅在这里做），避免与其它位置重复
+        private string BuildFinalUrlWithQuery(string baseUrl, string method)
+        {
+            if (!string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase) || parameterValues.Count == 0)
+                return baseUrl;
+
+            var queryParts = new List<string>();
+            foreach (var kv in parameterValues)
+            {
+                if (!string.IsNullOrEmpty(kv.Value))
+                {
+                    queryParts.Add($"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(kv.Value)}");
+                }
+            }
+
+            if (queryParts.Count == 0) return baseUrl;
+            return baseUrl + "?" + string.Join("&", queryParts);
+        }
+
+        // 构建用于 JSON Body 的对象字符串，利用 currentRouteParameters
+        private string BuildJsonPayloadForBody()
+        {
+            var sb = new StringBuilder();
+            sb.Append('{');
+            bool first = true;
+
+            foreach (var p in currentRouteParameters)
+            {
+                // 从 parameterValues 取值（可能不存在）
+                parameterValues.TryGetValue(p.Name, out var raw);
+                raw = raw ?? "";
+
+                // 根据类型进行输出（统一 InvariantCulture）
+                string jsonValue;
+                switch (p.Type)
+                {
+                    case "int":
+                    case "long":
+                    case "short":
+                    case "byte":
+                        if (string.IsNullOrWhiteSpace(raw))
+                            jsonValue = "null"; // 或者 "0"/跳过，依据后端约定
+                        else if (long.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var l))
+                            jsonValue = l.ToString(CultureInfo.InvariantCulture);
+                        else
+                            jsonValue = "null";
+                        break;
+
+                    case "float":
+                    case "double":
+                    case "decimal":
+                        if (string.IsNullOrWhiteSpace(raw))
+                            jsonValue = "null";
+                        else if (double.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out var d))
+                            jsonValue = d.ToString(CultureInfo.InvariantCulture);
+                        else
+                            jsonValue = "null";
+                        break;
+
+                    case "bool":
+                        if (string.IsNullOrWhiteSpace(raw))
+                            jsonValue = "null";
+                        else if (bool.TryParse(raw, out var b))
+                            jsonValue = b ? "true" : "false";
+                        else
+                            jsonValue = "null";
+                        break;
+
+                    case "char":
+                        if (string.IsNullOrEmpty(raw))
+                            jsonValue = "null";
+                        else
+                            jsonValue = "\"" + EscapeJsonString(raw.Substring(0, 1)) + "\"";
+                        break;
+
+                    case "string":
+                    default:
+                        // 字符串类型，允许空字符串；如需空→null，可按需调整
+                        jsonValue = "\"" + EscapeJsonString(raw) + "\"";
+                        break;
+                }
+
+                if (!first) sb.Append(',');
+                sb.Append('"').Append(EscapeJsonKey(p.Name)).Append("\":").Append(jsonValue);
+                first = false;
+            }
+
+            sb.Append('}');
+            return sb.ToString();
+        }
+
+        private string EscapeJsonString(string str)
+        {
+            if (str == null) return "";
+            return str
+                   .Replace("\\", "\\\\")
+                   .Replace("\"", "\\\"")
+                   .Replace("\b", "\\b")
+                   .Replace("\f", "\\f")
+                   .Replace("\n", "\\n")
+                   .Replace("\r", "\\r")
+                   .Replace("\t", "\\t");
+        }
+
+        private string EscapeJsonKey(string key)
+        {
+            // 参数名通常安全，但做最低限度转义
+            return (key ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"");
+        }
+
+        // 发送HTTP请求(异步版本) —— 单点构建 GET 查询与 Body，并按请求设置 Authorization
+        private async Task SendHttpRequestAsync(string baseUrl, RouteInfo selectedRoute)
+        {
+            try
+            {
+                var method = selectedRoute.method?.ToUpperInvariant() ?? "GET";
+                HttpResponseMessage response;
+
+                // 构建 HttpRequestMessage
+                var requestMessage = new HttpRequestMessage(new HttpMethod(method), BuildFinalUrlWithQuery(baseUrl, method));
+
+                // 设置授权头（避免静态 HttpClient DefaultRequestHeaders 并发污染）
+                var token = !string.IsNullOrEmpty(accessToken) ? accessToken : apiServer?.accessToken;
+                if (!string.IsNullOrEmpty(token))
+                {
+                    requestMessage.Headers.Authorization =
+                        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                }
+
+                // 如果是需要 body 的方法
+                if (method == "POST" || method == "PUT" || method == "PATCH")
+                {
+                    string jsonBody = BuildJsonPayloadForBody();
+                    if (string.IsNullOrEmpty(jsonBody))
+                    {
+                        jsonBody = "{}";
+                    }
+                    Debug.Log("构建的body"+ jsonBody );
+                    requestMessage.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+                }
+
+                response = await httpClient.SendAsync(requestMessage);
+             
+                responseStatusCode = (int)response.StatusCode;
+                responseContent = await response.Content.ReadAsStringAsync();
+
+                showResponse = true;
+                Repaint();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"发送HTTP请求时发生异常: {ex.Message}");
+
+                responseStatusCode = 0;
+                responseContent = $"发送请求时发生异常: {ex.Message}";
+                showResponse = true;
+                Repaint();
+            }
+        }
+
+        // 修改 ExecuteRequest 使用新流程
+        private async void ExecuteRequest()
+        {
+            if (!ValidateRequest()) return;
+
+            var selectedRoute = registeredRoutes[selectedRouteIndex];
+            var baseUrl = BuildBaseRequestUrl(selectedRoute);
+
+            Debug.Log($"发送请求到: {baseUrl}, 方法: {selectedRoute.method}");
+
+            await SendHttpRequestAsync(baseUrl, selectedRoute);
+        }
+
+        // 测试连接（异步）
+        private async void TestConnection()
+        {
+            string serverUrl = "http://localhost:8080"; // 默认URL
+
             if (apiServer != null && apiServer.isRunning)
             {
                 serverUrl = apiServer.serverUrl;
@@ -557,57 +754,27 @@ namespace LocalRestAPI
                 return;
             }
 
-            // 确保URL格式正确
-            if (!serverUrl.EndsWith("/"))
-            {
-                serverUrl += "/";
-            }
-
-            string testUrl = serverUrl + "api/routes"; // 测试API路由端点
+            // 规范化 URL
+            serverUrl = serverUrl.TrimEnd('/');
+            string testUrl = serverUrl + "/api/routes";
 
             try
             {
-                Debug.Log($"测试连接到: {testUrl}");
+                var request = new HttpRequestMessage(HttpMethod.Get, testUrl);
 
-                var request = (HttpWebRequest)WebRequest.Create(testUrl);
-                request.Method = "GET";
-                request.Timeout = 5000; // 5秒超时
-
-                // 添加访问令牌
-                string token = !string.IsNullOrEmpty(accessToken) ? accessToken : apiServer.accessToken;
+                // 设置授权头
+                var token = !string.IsNullOrEmpty(accessToken) ? accessToken : apiServer?.accessToken;
                 if (!string.IsNullOrEmpty(token))
                 {
-                    request.Headers["Authorization"] = "Bearer " + token;
+                    request.Headers.Authorization =
+                        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
                 }
 
-                using (var response = (HttpWebResponse)request.GetResponse())
-                {
-                    responseStatusCode = (int)response.StatusCode;
-                    using (var reader = new StreamReader(response.GetResponseStream()))
-                    {
-                        responseContent = $"连接测试成功!\n状态码: {response.StatusCode}\n响应: {reader.ReadToEnd()}";
-                    }
-                }
+                var resp = await httpClient.SendAsync(request);
 
-                showResponse = true;
-                Repaint();
-            }
-            catch (WebException ex)
-            {
-                responseStatusCode = 0;
-                if (ex.Response is HttpWebResponse response)
-                {
-                    responseStatusCode = (int)response.StatusCode;
-                    using (var reader = new StreamReader(response.GetResponseStream()))
-                    {
-                        responseContent = $"连接测试失败!\n状态码: {response.StatusCode}\n错误: {ex.Message}\n响应: {reader.ReadToEnd()}";
-                    }
-                }
-                else
-                {
-                    responseContent = $"连接测试失败!\n错误: {ex.Message}\n状态: {ex.Status}";
-                }
-
+                responseStatusCode = (int)resp.StatusCode;
+                var text = await resp.Content.ReadAsStringAsync();
+                responseContent = $"连接测试完成.\n状态码: {resp.StatusCode}\n响应:\n{text}";
                 showResponse = true;
                 Repaint();
             }
@@ -615,37 +782,6 @@ namespace LocalRestAPI
             {
                 responseStatusCode = 0;
                 responseContent = $"连接测试异常!\n错误: {ex.Message}";
-                showResponse = true;
-                Repaint();
-            }
-        }
-
-        private void ExecuteRequest()
-        {
-            if (!ValidateRequest())
-            {
-                return;
-            }
-
-            var selectedRoute = registeredRoutes[selectedRouteIndex];
-            string requestUrl = BuildRequestUrl(selectedRoute);
-
-            try
-            {
-                Debug.Log($"发送请求到: {requestUrl}"); // 添加调试日志
-
-                var request = CreateHttpRequest(requestUrl, selectedRoute);
-                SendHttpRequest(request, selectedRoute);
-            }
-            catch (WebException ex)
-            {
-                HandleWebException(ex);
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"执行请求时发生异常: {ex.Message}");
-                responseStatusCode = 0;
-                responseContent = $"请求失败: {ex.Message}";
                 showResponse = true;
                 Repaint();
             }
@@ -675,203 +811,6 @@ namespace LocalRestAPI
             }
 
             return true;
-        }
-
-        // 构建请求URL
-        private string BuildRequestUrl(RouteInfo selectedRoute)
-        {
-            string baseUrl = "http://localhost:8080/"; // 默认URL
-
-            // 只使用API服务器实例的信息
-            if (apiServer != null && apiServer.isRunning)
-            {
-                // 获取主窗口的服务器URL
-                baseUrl = apiServer.serverUrl;
-            }
-            else
-            {
-                // 如果没有API服务器实例，使用默认URL
-                Debug.LogWarning("API服务器实例为空或未运行，使用默认URL。请通过主控制台打开API测试窗口。");
-            }
-
-            // 确保baseUrl以/结尾
-            if (!baseUrl.EndsWith("/"))
-            {
-                baseUrl += "/";
-            }
-
-            string requestUrl = customUrl;
-            if (string.IsNullOrEmpty(requestUrl))
-            {
-                // 确保路径格式正确
-                string path = selectedRoute.path;
-                if (!path.StartsWith("/"))
-                {
-                    path = "/" + path;
-                }
-
-                // 确保路径不以多个斜杠开始
-                // path = "/" + path.TrimStart('/');
-                requestUrl = baseUrl.TrimEnd('/') + path;
-            }
-
-            // 添加查询参数
-            if (selectedRoute.method == "GET" && parameterValues.Count > 0)
-            {
-                bool hasQuery = requestUrl.Contains("?");
-                foreach (var param in parameterValues)
-                {
-                    if (!string.IsNullOrEmpty(param.Value))
-                    {
-                        requestUrl += (hasQuery ? "&" : "?") + param.Key + "=" + Uri.EscapeDataString(param.Value);
-                        hasQuery = true;
-                    }
-                }
-            }
-
-            Debug.Log($"构建的请求URL: {requestUrl}"); // 添加调试日志
-            return requestUrl;
-        }
-
-        // 创建HTTP请求
-        private HttpWebRequest CreateHttpRequest(string requestUrl, RouteInfo selectedRoute)
-        {
-            var request = (HttpWebRequest)WebRequest.Create(requestUrl);
-            request.Method = selectedRoute.method;
-            request.ContentType = "application/json";
-            request.Timeout = 15000;          // 设置15秒超时
-            request.ReadWriteTimeout = 15000; // 设置读写超时
-
-            // 添加访问令牌
-            string token = !string.IsNullOrEmpty(accessToken) ? accessToken : apiServer.accessToken;
-            Debug.Log($"使用访问令牌: {(!string.IsNullOrEmpty(token) ? "是" : "否")}"); // 添加调试日志
-
-            if (!string.IsNullOrEmpty(token))
-            {
-                request.Headers["Authorization"] = "Bearer " + token;
-                Debug.Log($"设置Authorization头: Bearer {token}"); // 添加调试日志
-            }
-
-            return request;
-        }
-
-        // 发送HTTP请求
-        private void SendHttpRequest(HttpWebRequest request, RouteInfo selectedRoute)
-        {
-            try
-            {
-                // 如果是POST请求且有参数，添加请求体
-                if (selectedRoute.method == "POST" && parameterValues.Count > 0)
-                {
-                    AddPostData(request);
-                }
-
-                using (var response = (HttpWebResponse)request.GetResponse())
-                {
-                    responseStatusCode = (int)response.StatusCode;
-                    using (var reader = new StreamReader(response.GetResponseStream()))
-                    {
-                        responseContent = reader.ReadToEnd();
-                    }
-                }
-
-                showResponse = true;
-                Repaint();
-            }
-            catch (WebException webEx)
-            {
-                HandleWebException(webEx);
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"发送HTTP请求时发生异常: {ex.Message}");
-                responseStatusCode = 0;
-                responseContent = $"发送请求时发生异常: {ex.Message}";
-                showResponse = true;
-                Repaint();
-            }
-        }
-
-        // 添加POST数据
-        private void AddPostData(HttpWebRequest request)
-        {
-            var postData = new Dictionary<string, string>();
-            foreach (var param in parameterValues)
-            {
-                if (!string.IsNullOrEmpty(param.Value))
-                {
-                    postData[param.Key] = param.Value;
-                }
-            }
-
-            if (postData.Count > 0)
-            {
-                string json = BuildJsonFromParameters(postData);
-                byte[] data = Encoding.UTF8.GetBytes(json);
-                request.ContentLength = data.Length;
-
-                using (var stream = request.GetRequestStream())
-                {
-                    stream.Write(data, 0, data.Length);
-                }
-            }
-        }
-
-        // 从参数构建JSON
-        private string BuildJsonFromParameters(Dictionary<string, string> postData)
-        {
-            var sb = new StringBuilder();
-            sb.Append("{");
-            bool first = true;
-            foreach (var param in postData)
-            {
-                if (!first) sb.Append(",");
-                sb.Append($"\"{param.Key}\":\"{param.Value}\"");
-                first = false;
-            }
-
-            sb.Append("}");
-            return sb.ToString();
-        }
-
-        // 处理Web异常
-        private void HandleWebException(WebException ex)
-        {
-            Debug.LogError($"Web异常: {ex.Message}, 状态: {ex.Status}");
-
-            if (ex.Response is HttpWebResponse response)
-            {
-                responseStatusCode = (int)response.StatusCode;
-                using (var reader = new StreamReader(response.GetResponseStream()))
-                {
-                    responseContent = reader.ReadToEnd();
-                }
-            }
-            else
-            {
-                responseStatusCode = 0;
-                responseContent = $"请求失败: {ex.Message}\n异常状态: {ex.Status}";
-
-                // 根据不同的异常状态提供更具体的错误信息
-                switch (ex.Status)
-                {
-                    case WebExceptionStatus.Timeout:
-                        responseContent += "\n错误: 请求超时，请检查服务器是否正在运行";
-                        break;
-                    case WebExceptionStatus.ConnectFailure:
-                        responseContent += "\n错误: 连接失败，请检查服务器地址是否正确";
-                        break;
-                    case WebExceptionStatus.NameResolutionFailure:
-                        responseContent += "\n错误: DNS解析失败，请检查主机名";
-                        break;
-                    default:
-                        responseContent += $"\n错误状态: {ex.Status}";
-                        break;
-                }
-            }
-
-            showResponse = true;
-            Repaint();
         }
     }
 }

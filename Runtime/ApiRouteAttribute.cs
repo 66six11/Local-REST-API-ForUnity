@@ -13,10 +13,7 @@ namespace LocalRestAPI.Runtime
         public string Path { get; set; }
 
 
-        public bool NeedsMainThread { get; set; }
-
-
-        public ApiRouteAttribute(string method, string path, bool needsMainThread = false)
+        public ApiRouteAttribute(string method, string path)
 
 
         {
@@ -24,8 +21,6 @@ namespace LocalRestAPI.Runtime
 
 
             Path = path;
-
-            NeedsMainThread = needsMainThread;
         }
     }
 
@@ -38,7 +33,7 @@ namespace LocalRestAPI.Runtime
 
 
     {
-        public GetRouteAttribute(string path, bool needsMainThread = false) : base("GET", path, needsMainThread)
+        public GetRouteAttribute(string path) : base("GET", path)
 
         {
         }
@@ -53,7 +48,7 @@ namespace LocalRestAPI.Runtime
 
 
     {
-        public PostRouteAttribute(string path, bool needsMainThread = false) : base("POST", path, needsMainThread)
+        public PostRouteAttribute(string path) : base("POST", path)
 
         {
         }

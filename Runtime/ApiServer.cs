@@ -49,11 +49,6 @@ namespace LocalRestAPI.Runtime
                 return;
             }
 
-            if (url == null)
-            {
-                Logger.Log("服务器地址不正确，请检查", LogLevel.Error);
-                return;
-            }
 
             // 检查端口是否被占用
             try
@@ -83,13 +78,14 @@ namespace LocalRestAPI.Runtime
                 httpListener = new HttpListener();
                 httpListener.Prefixes.Add(serverUrl);
                 httpListener.Start();
-                isRunning = true;
 
+                //注册路由
+                RegisterRoutes();
                 // 启动监听线程
                 listenerThread = new Thread(ListenForRequests);
                 listenerThread.IsBackground = true;
                 listenerThread.Start();
-
+                isRunning = true;
                 Logger.Log("服务器已启动，监听地址为: " + serverUrl);
                 Logger.Log("访问令牌: " + accessToken);
             }
@@ -115,6 +111,11 @@ namespace LocalRestAPI.Runtime
             }
         }
 
+        private void RegisterRoutes()
+        {
+            PredefinedRouteRegistrar.RegisterRoutes(this);
+        }
+
         public void Stop()
         {
             if (!isRunning) return;
@@ -134,7 +135,11 @@ namespace LocalRestAPI.Runtime
             finally
             {
                 httpListener = null;
+                listenerThread = null;
+                cancellationTokenSource = null;
+            
             }
+            
         }
 
         private void ListenForRequests()
@@ -176,7 +181,7 @@ namespace LocalRestAPI.Runtime
             string clientIp = request.RemoteEndPoint?.ToString();
             DateTime startTime = DateTime.Now;
 
-            string routeKey = $"{method} {path}";
+            string routeKey = GetRoutekey(method, path);
             bool isUnregisteredRoute = false;
 
             try
@@ -185,8 +190,15 @@ namespace LocalRestAPI.Runtime
                 ApiLogger.LogRequest(method, url, clientIp, GetHeaders(request.Headers), GetRequestBody(request), false);
 
                 //检查是否是注册的API路由
+                if (path == "/api/routes" && method == "GET")
+                {
+                    HandleRoutesRequest(response);
+                    return;
+                }
+
                 if (!apiRoutes.ContainsKey(routeKey))
                 {
+                    Logger.Log(routeKey + " 未注册的API路由", LogLevel.Warning);
                     isUnregisteredRoute = true;
                     response.StatusCode = (int)HttpStatusCode.NotFound;
                     response.StatusDescription = "Not Found";
@@ -236,14 +248,7 @@ namespace LocalRestAPI.Runtime
             string path = request.Url.AbsolutePath;
             string method = request.HttpMethod;
 
-            // 检查是否为内置路由
-            if (path == "/api/routes" && method == "GET")
-            {
-                HandleRoutesRequest(response);
-                return;
-            }
-
-            string routeKey = $"{method} {path}";
+            string routeKey = GetRoutekey(method, path);
 
             if (apiRoutes.TryGetValue(routeKey, out var route))
             {
@@ -257,15 +262,24 @@ namespace LocalRestAPI.Runtime
                     catch (Exception ex)
                     {
                         Logger.LogError($"处理API请求时发生异常: {ex.Message}");
-                        SendResponse(response, $"Handler error: {ex.Message}", 500);
+                        SetResponse(response, $"Handler error: {ex.Message}", 500);
                         return false;
                     }
                 });
 
                 if (!success)
                 {
-                    SendResponse(response, "Method execution error", 500);
+                    SetResponse(response, "Method execution error", 500);
                 }
+
+                //关闭请求
+                response.OutputStream.Close();
+            }
+            else
+            {
+                response.StatusCode = (int)HttpStatusCode.NotFound;
+                response.StatusDescription = "Not Found";
+                SendResponse(response, "Route not found", (int)HttpStatusCode.NotFound);
             }
         }
 
@@ -286,10 +300,8 @@ namespace LocalRestAPI.Runtime
             {
                 try
                 {
-                    using (var reader = new StreamReader(request.InputStream, request.ContentEncoding))
-                    {
-                        return reader.ReadToEnd();
-                    }
+                    using var reader = new StreamReader(request.InputStream, request.ContentEncoding);
+                    return reader.ReadToEnd();
                 }
                 catch
                 {
@@ -309,7 +321,7 @@ namespace LocalRestAPI.Runtime
 
         private void HandleRoutesRequest(HttpListenerResponse response)
         {
-            var routeList = new List<RouteInfo>();
+            var routeList = new RouteListWrapper();
 
             foreach (var route in apiRoutes)
             {
@@ -322,11 +334,33 @@ namespace LocalRestAPI.Runtime
                 });
             }
 
-            string jsonResponse = JsonUtility.ToJson(new { routes = routeList });
+            string jsonResponse = JsonUtility.ToJson(routeList);
             SendResponse(response, jsonResponse, 200, "application/json");
         }
 
+        [System.Serializable]
+        private class RouteListWrapper
+        {
+            public List<RouteInfo> routes;
+
+            public void Add(RouteInfo route)
+            {
+                if (routes == null)
+                {
+                    routes = new List<RouteInfo>();
+                }
+
+                routes.Add(route);
+            }
+        }
+
         private void SendResponse(HttpListenerResponse response, string content, int statusCode, string contentType = "text/plain")
+        {
+            SetResponse(response, content, statusCode, contentType);
+            response.OutputStream.Close();
+        }
+
+        private void SetResponse(HttpListenerResponse response, string content, int statusCode, string contentType = "text/plain")
         {
             try
             {
@@ -337,7 +371,6 @@ namespace LocalRestAPI.Runtime
                 response.ContentLength64 = buffer.Length;
 
                 response.OutputStream.Write(buffer, 0, buffer.Length);
-                response.OutputStream.Close();
             }
             catch (Exception ex)
             {
@@ -377,7 +410,7 @@ namespace LocalRestAPI.Runtime
         public void RegisterRoute(string method, string path, IApiHandler handler,
                                   IApiParameterParser parameterParser, string controllerName, string methodName)
         {
-            string routeKey = $"{method} {path}";
+            string routeKey = GetRoutekey(method, path);
             var route = new ApiRoute(method, path, handler, parameterParser, controllerName, methodName);
 
             apiRoutes.AddOrUpdate(routeKey, route, (key, existing) => route);
@@ -386,7 +419,7 @@ namespace LocalRestAPI.Runtime
 
         public void UnregisterRoute(string method, string path)
         {
-            string routeKey = $"{method} {path}";
+            string routeKey = GetRoutekey(method, path);
             if (apiRoutes.TryRemove(routeKey, out _))
             {
                 Logger.Log($"注销API路由: {routeKey}");
@@ -415,6 +448,11 @@ namespace LocalRestAPI.Runtime
             }
 
             return routeList;
+        }
+
+        public string GetRoutekey(string method, string path)
+        {
+            return $"{method} {path}";
         }
     }
 }

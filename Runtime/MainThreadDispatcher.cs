@@ -33,23 +33,103 @@ namespace LocalRestAPI
             CreateInstance();
         }
 
+#if UNITY_EDITOR
+        [UnityEditor.InitializeOnLoadMethod]
+        private static void InitializeEditor()
+        {
+            // 编辑器模式下注册更新回调
+            UnityEditor.EditorApplication.update += EditorUpdate;
+            
+            // 编辑器退出时清理
+            UnityEditor.EditorApplication.quitting += OnEditorQuitting;
+            
+            // 确保在编辑器模式下也有实例
+            UnityEditor.EditorApplication.delayCall += () =>
+            {
+                if (_instance == null && !Application.isPlaying)
+                {
+                    CreateEditorInstance();
+                }
+            };
+        }
+
+        private static void OnEditorQuitting()
+        {
+            UnityEditor.EditorApplication.update -= EditorUpdate;
+            if (_instance != null && !Application.isPlaying)
+            {
+                DestroyImmediate(_instance.gameObject);
+                _instance = null;
+            }
+        }
+
+        private static void EditorUpdate()
+        {
+            // 编辑器模式下的更新处理
+            if (_instance == null && !Application.isPlaying)
+            {
+                CreateEditorInstance();
+            }
+            
+            if (_instance != null && !Application.isPlaying)
+            {
+                ProcessQueues();
+            }
+        }
+
+        private static void CreateEditorInstance()
+        {
+            if (_instance != null) return;
+            if (Application.isPlaying) return; // 播放模式下使用正常流程
+
+            // 在编辑器模式下创建隐藏的GameObject
+            var go = new GameObject("MainThreadDispatcher_Editor")
+            {
+                hideFlags = HideFlags.HideAndDontSave
+            };
+            _instance = go.AddComponent<MainThreadDispatcher>();
+            
+            // 设置为主线程
+            _instance.mainThread = Thread.CurrentThread;
+        }
+#endif
+
         private static void CreateInstance()
         {
             if (_instance != null) return;
 
-            var existing = FindObjectOfType<MainThreadDispatcher>();
-            if (existing != null)
+            // 在播放模式下查找现有实例
+            if (Application.isPlaying)
             {
-                _instance = existing;
-                return;
-            }
+                var existing = FindFirstObjectByType<MainThreadDispatcher>();
+                if (existing != null)
+                {
+                    _instance = existing;
+                    return;
+                }
 
-            var go = new GameObject("MainThreadDispatcher");
-            _instance = go.AddComponent<MainThreadDispatcher>();
-            DontDestroyOnLoad(go);
+                var go = new GameObject("MainThreadDispatcher");
+                _instance = go.AddComponent<MainThreadDispatcher>();
+                DontDestroyOnLoad(go);
+            }
+#if UNITY_EDITOR
+            else
+            {
+                // 编辑器非播放模式
+                CreateEditorInstance();
+            }
+#endif
         }
 
         private void Update()
+        {
+            if (Application.isPlaying)
+            {
+                ProcessQueues();
+            }
+        }
+
+        private static void ProcessQueues()
         {
             // 处理异步操作
             while (_actionQueue.TryDequeue(out var action))
@@ -97,6 +177,12 @@ namespace LocalRestAPI
             }
 
             _actionQueue.Enqueue(action);
+            
+            // 确保在编辑器模式下有实例处理队列
+            if (_instance == null)
+            {
+                CreateInstance();
+            }
         }
 
         /// <summary>
@@ -115,6 +201,13 @@ namespace LocalRestAPI
             using (var resetEvent = new ManualResetEvent(false))
             {
                 _syncActionQueue.Enqueue((action, resetEvent));
+                
+                // 确保在编辑器模式下有实例处理队列
+                if (_instance == null)
+                {
+                    CreateInstance();
+                }
+                
                 resetEvent.WaitOne();
             }
         }
@@ -146,6 +239,12 @@ namespace LocalRestAPI
                     }
                 }, resetEvent));
                 
+                // 确保在编辑器模式下有实例处理队列
+                if (_instance == null)
+                {
+                    CreateInstance();
+                }
+                
                 resetEvent.WaitOne();
             }
             return result;
@@ -160,14 +259,34 @@ namespace LocalRestAPI
 
             if (IsMainThread())
             {
-                action();
-                return true;
+                try
+                {
+                    action();
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"主线程函数执行异常: {ex}");
+                    return false;
+                }
             }
 
             using (var resetEvent = new ManualResetEvent(false))
             {
                 _syncActionQueue.Enqueue((action, resetEvent));
-                return resetEvent.WaitOne(timeoutMilliseconds);
+                
+                // 确保在编辑器模式下有实例处理队列
+                if (_instance == null)
+                {
+                    CreateInstance();
+                }
+                
+                bool completed = resetEvent.WaitOne(timeoutMilliseconds);
+                if (!completed)
+                {
+                    Debug.LogError($"主线程调用超时 ({timeoutMilliseconds}ms)");
+                }
+                return completed;
             }
         }
 
@@ -176,7 +295,7 @@ namespace LocalRestAPI
         /// </summary>
         public static bool IsMainThread()
         {
-            return Thread.CurrentThread == _instance?.mainThread;
+            return _instance != null && Thread.CurrentThread == _instance.mainThread;
         }
 
         private Thread mainThread;
@@ -191,7 +310,11 @@ namespace LocalRestAPI
 
             _instance = this;
             mainThread = Thread.CurrentThread;
-            DontDestroyOnLoad(gameObject);
+            
+            if (Application.isPlaying)
+            {
+                DontDestroyOnLoad(gameObject);
+            }
         }
 
         private void OnDestroy()
@@ -201,5 +324,17 @@ namespace LocalRestAPI
                 _instance = null;
             }
         }
+
+#if UNITY_EDITOR
+        private void OnApplicationQuit()
+        {
+            // 清理编辑器模式的实例
+            if (!Application.isPlaying && _instance == this)
+            {
+                DestroyImmediate(gameObject);
+                _instance = null;
+            }
+        }
+#endif
     }
 }

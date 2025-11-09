@@ -17,7 +17,7 @@
                 // 简单的JSON解析，查找指定参数名的值
                 // 格式: "paramName": "value" 或 "paramName":value
                 string escapedParamName = paramName.Replace("\"", "\\\"");
-                string pattern = $"\"{escapedParamName}\"\\s*:\\s*\"([^\"]*)\""; // 匹配字符串值
+                string pattern = $"\"{escapedParamName}\"\s*:\s*\"([^"]*)\""; // 匹配字符串值
                 var stringMatch = System.Text.RegularExpressions.Regex.Match(json, pattern);
 
                 if (stringMatch.Success)
@@ -26,7 +26,7 @@
                 }
 
                 // 尝试匹配非字符串值（数字、布尔值等）
-                pattern = $"\"{escapedParamName}\"\\s*:\\s*([^,}}]*)[\\s,}}]";
+                pattern = $"\"{escapedParamName}\"\s*:\s*([^,}}]*)[\s,}}]";
                 var valueMatch = System.Text.RegularExpressions.Regex.Match(json, pattern);
 
                 if (valueMatch.Success)

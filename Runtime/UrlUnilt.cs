@@ -1,24 +1,1 @@
-namespace LocalRestAPI.Runtime
-{
-    public static class UrlUtility
-    {
-        /// <summary>
-        /// 定向到api的路径
-        /// </summary>
-        /// <param name="baseUri"></param>
-        /// <param name="path"></param>
-        /// <returns></returns>
-        public static string Combine(string baseUri, string path)
-        {
-            return baseUri.TrimEnd('/') + "/" + path.TrimStart('/');
-        }
-        
-        ///验证url是否合法
-        public static bool IsUrl(string url)
-        {
-            return url.StartsWith("http://") || url.StartsWith("https://")||url.EndsWith("/");
-        }
-        
-       
-    }
-}
+namespace LocalRestAPI.Runtime{    public static class UrlUtility    {        /// <summary>        /// 定向到api的路径        /// </summary>        /// <param name="baseUri"></param>        /// <param name="path"></param>        /// <returns></returns>        public static string Combine(string baseUri, string path)        {            // 更健壮的实现            baseUri = baseUri.TrimEnd('/');            path = path.TrimStart('/');            // 处理空路径的情况            if (string.IsNullOrEmpty(path))                return baseUri;            return $"{baseUri}/{path}";        }        /// <summary>        /// 验证URL是否合法        /// </summary>        /// <param name="url"></param>        /// <returns></returns>        public static bool IsUrl(string url)        {            return url.StartsWith("http://") || url.StartsWith("https://") || url.EndsWith("/");        }    }}

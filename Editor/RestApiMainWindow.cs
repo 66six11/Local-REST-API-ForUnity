@@ -5,8 +5,11 @@ using System.Reflection;
 using LocalRestAPI.Runtime;
 using UnityEditor;
 using UnityEngine;
+using Logger = LocalRestAPI.Runtime.Logger;
+
 
 namespace LocalRestAPI
+
 {
     public class RestApiMainWindow : EditorWindow
     {
@@ -14,6 +17,9 @@ namespace LocalRestAPI
 
         // API服务器实例
         public ApiServer apiServer;
+
+        //logger实例
+        private Logger logger;
 
         // 服务状态
         private bool isServiceRunning = false;
@@ -46,40 +52,98 @@ namespace LocalRestAPI
             window = GetWindow<RestApiMainWindow>("Local REST API");
             window.minSize = new Vector2(600, 400);
         }
-        
+
         public void ShowApiTestWindow()
         {
             ApiTestWindow.ShowWindow(apiServer);
         }
 
         private void OnEnable()
+
         {
             // 加载配置
+
             config = ApiConfig.Load();
+
             serverUrl = config.serverUrl;
+
             accessToken = config.accessToken;
+
+            logger = new Logger();
+
             // 注册日志回调
+
             Application.logMessageReceived += HandleLog;
+
             // 定期更新性能指标
+
             EditorApplication.update += UpdatePerformanceMetrics;
+
+            // 定期更新Logger日志显示
+
+            EditorApplication.update += UpdateLoggerDisplay;
         }
 
         private void OnDisable()
+
         {
             // 取消注册日志回调
+
             Application.logMessageReceived -= HandleLog;
+
             // 停止服务
+
             StopService();
+
             // 取消注册性能指标更新
+
             EditorApplication.update -= UpdatePerformanceMetrics;
-            
+
+            // 取消注册Logger日志显示更新
+
+            EditorApplication.update -= UpdateLoggerDisplay;
         }
-        
-    
+
+
+        private void UpdateLoggerDisplay()
+
+        {
+            // 每秒重绘一次Logger日志面板以更新显示
+
+            if (EditorApplication.timeSinceStartup % 1 < 0.1f)
+
+            {
+                Repaint();
+            }
+        }
+
 
         private void HandleLog(string condition, string stackTrace, LogType type)
+
         {
-            AddLog($"[{type}] {condition}");
+            string logMessage = $"[{type}] {condition}";
+
+            AddLog(logMessage);
+
+            // 同时使用Logger记录
+
+            if (type == LogType.Error || type == LogType.Exception)
+
+            {
+                Logger.LogError(logMessage);
+            }
+
+            else if (type == LogType.Warning)
+
+            {
+                Logger.LogWarning(logMessage);
+            }
+
+            else
+
+            {
+                Logger.Log(logMessage);
+            }
         }
 
         private void UpdatePerformanceMetrics()
@@ -98,25 +162,43 @@ namespace LocalRestAPI
         }
 
         private void OnGUI()
+
         {
             // 标题
+
             GUILayout.Label("Local REST API 服务控制台", new GUIStyle(EditorStyles.boldLabel) { fontSize = 16 });
+
             EditorGUILayout.Space();
 
+
             // 服务控制面板
+
             DrawServiceControlPanel();
 
+
             // 访问令牌设置
+
             DrawAccessTokenSettings();
 
+
             // 性能监控面板
+
             DrawPerformancePanel();
 
+
             // API路由列表
+
             DrawRouteList();
 
+
             // 日志面板
+
             DrawLogPanel();
+
+
+            // Logger日志面板
+
+            DrawLoggerPanel();
         }
 
         private void DrawServiceControlPanel()
@@ -163,6 +245,7 @@ namespace LocalRestAPI
             {
                 ApiTestWindow.ShowWindow(apiServer);
             }
+
             EditorGUI.EndDisabledGroup();
 
             EditorGUILayout.EndHorizontal();
@@ -185,11 +268,19 @@ namespace LocalRestAPI
             EditorGUILayout.EndHorizontal();
 
             if (GUILayout.Button("重新生成令牌"))
+
             {
                 accessToken = Guid.NewGuid().ToString("N");
+
                 config.accessToken = accessToken;
+
                 config.Save();
-                AddLog("访问令牌已重新生成并保存");
+
+                string logMessage = "访问令牌已重新生成并保存";
+
+                AddLog(logMessage);
+
+                Logger.Log(logMessage);
             }
 
             EditorGUILayout.EndVertical();
@@ -285,23 +376,38 @@ namespace LocalRestAPI
 
             if (GUILayout.Button("生成API代码"))
 
+
             {
                 try
+
 
                 {
                     ApiCodeGenerator.GenerateApiHandlerCode();
 
-                    AddLog("API代码生成完成");
+
+                    string logMessage = "API代码生成完成";
+
+                    AddLog(logMessage);
+
+                    Logger.Log(logMessage);
+
 
                     // 生成代码后刷新路由列表
+
 
                     RefreshRouteList();
                 }
 
+
                 catch (Exception ex)
 
+
                 {
-                    AddLog($"API代码生成失败: {ex.Message}");
+                    string errorMessage = $"API代码生成失败: {ex.Message}";
+
+                    AddLog(errorMessage);
+
+                    Logger.LogError(errorMessage);
                 }
             }
 
@@ -313,31 +419,121 @@ namespace LocalRestAPI
         }
 
         private void DrawLogPanel()
+
         {
             EditorGUILayout.BeginVertical(GUI.skin.box);
+
             GUILayout.Label("服务日志", EditorStyles.boldLabel);
+
 
             logScrollPosition = EditorGUILayout.BeginScrollView(logScrollPosition, GUILayout.Height(0), GUILayout.MinHeight(150));
 
+
             foreach (var log in logs)
+
             {
                 EditorGUILayout.SelectableLabel(log, GUILayout.Height(15));
             }
 
+
             EditorGUILayout.EndScrollView();
 
+
             EditorGUILayout.BeginHorizontal();
+
             if (GUILayout.Button("清空日志"))
+
             {
                 logs.Clear();
             }
 
+
             if (GUILayout.Button("导出日志"))
+
             {
                 ExportLogs();
             }
 
+
             EditorGUILayout.EndHorizontal();
+
+
+            EditorGUILayout.EndVertical();
+        }
+
+
+        private Vector2 loggerScrollPosition;
+
+
+        private void DrawLoggerPanel()
+
+        {
+            EditorGUILayout.BeginVertical(GUI.skin.box);
+
+            GUILayout.Label("Logger日志", EditorStyles.boldLabel);
+
+
+            loggerScrollPosition = EditorGUILayout.BeginScrollView(loggerScrollPosition, GUILayout.Height(0), GUILayout.MinHeight(150));
+
+
+            var loggerLogs = LocalRestAPI.Runtime.Logger.GetLogs();
+
+            for (int i = loggerLogs.Count - 1; i >= 0; i--) // 从最新的开始显示
+
+            {
+                var logItem = loggerLogs[i];
+
+                GUIStyle style = new GUIStyle(EditorStyles.label);
+
+                switch (logItem.level)
+
+                {
+                    case LocalRestAPI.Runtime.LogLevel.Error:
+
+                        style.normal.textColor = Color.red;
+
+                        break;
+
+                    case LocalRestAPI.Runtime.LogLevel.Warning:
+
+                        style.normal.textColor = Color.yellow;
+
+                        break;
+
+                    case LocalRestAPI.Runtime.LogLevel.Info:
+
+                        style.normal.textColor = Color.white;
+
+                        break;
+                }
+
+                EditorGUILayout.SelectableLabel(logItem.message, style, GUILayout.Height(15));
+            }
+
+
+            EditorGUILayout.EndScrollView();
+
+
+            EditorGUILayout.BeginHorizontal();
+
+            if (GUILayout.Button("清空Logger日志"))
+
+            {
+                LocalRestAPI.Runtime.Logger.Clear();
+            }
+
+
+            if (GUILayout.Button("刷新Logger日志"))
+
+            {
+                // 刷新日志显示
+
+                Repaint();
+            }
+
+
+            EditorGUILayout.EndHorizontal();
+
 
             EditorGUILayout.EndVertical();
         }
@@ -345,64 +541,99 @@ namespace LocalRestAPI
         private void StartService()
         {
             try
+
             {
                 // 更新配置
+
                 config.serverUrl = serverUrl;
+
                 config.accessToken = accessToken;
+
                 config.Save();
 
-                if (apiServer == null)
-                {
-                    apiServer = new ApiServer(serverUrl, accessToken);
-                }
+
+                apiServer = new ApiServer(serverUrl, accessToken);
+
 
                 apiServer.Start();
+
                 isServiceRunning = apiServer.isRunning;
+
                 serviceStatus = isServiceRunning ? "运行中" : "启动失败";
 
+
                 if (isServiceRunning)
+
                 {
                     AddLog("REST API服务已启动");
+
                     AddLog($"监听地址: {serverUrl}");
+
                     AddLog($"访问令牌: {accessToken}");
 
+
                     // 刷新路由列表
+
                     RefreshRouteList();
                 }
+
                 else
+
                 {
                     AddLog("REST API服务启动失败");
                 }
             }
+
             catch (Exception ex)
+
             {
-                AddLog($"启动服务失败: {ex.Message}");
+                string errorMessage = $"启动服务失败: {ex.Message}";
+
+                AddLog(errorMessage);
+
+                Logger.LogError(errorMessage);
+
                 isServiceRunning = false;
+
                 serviceStatus = "启动失败";
             }
         }
 
         private void StopService()
+
         {
             try
+
             {
                 if (apiServer != null)
+
                 {
                     apiServer.Stop();
+
                     apiServer = null;
                 }
 
+
                 isServiceRunning = false;
+
                 serviceStatus = "已停止";
+
                 AddLog("REST API服务已停止");
             }
+
             catch (Exception ex)
+
             {
-                AddLog($"停止服务失败: {ex.Message}");
+                string errorMessage = $"停止服务失败: {ex.Message}";
+
+                AddLog(errorMessage);
+
+                Logger.LogError(errorMessage);
             }
         }
 
         private void RefreshRouteList()
+
 
         {
             registeredRoutes.Clear();
@@ -410,31 +641,47 @@ namespace LocalRestAPI
 
             if (apiServer != null)
 
+
             {
                 var routes = apiServer.GetAllRoutes();
 
+
                 foreach (var route in routes)
+
 
                 {
                     registeredRoutes.Add($"{route.method} {route.path} ———— {route.handler}");
                 }
 
 
-                AddLog($"路由列表已刷新，共 {routes.Count} 个路由");
+                string logMessage = $"路由列表已刷新，共 {routes.Count} 个路由";
+
+                AddLog(logMessage);
+
+                Logger.Log(logMessage);
             }
 
+
             else
+
 
             {
                 var routeList = GetDefinedRoutes();
 
+
                 foreach (var route in routeList)
+
 
                 {
                     registeredRoutes.Add($"{route.method} {route.path} ———— {route.handler}");
                 }
 
-                AddLog("路由列表已刷新，但服务未启动，仅显示已定义的路由");
+
+                string logMessage = "路由列表已刷新，但服务未启动，仅显示已定义的路由";
+
+                AddLog(logMessage);
+
+                Logger.Log(logMessage);
             }
         }
 
@@ -536,8 +783,11 @@ namespace LocalRestAPI
                 EditorUtility.DisplayDialog("无法找到脚本", $"无法找到包含类 {className} 的脚本文件", "确定");
             }
             catch (Exception ex)
+
             {
-                Debug.LogError($"打开路由代码失败: {ex.Message}");
+                string errorMessage = $"打开路由代码失败: {ex.Message}";
+
+                Logger.LogError(errorMessage);
             }
         }
 
@@ -558,28 +808,49 @@ namespace LocalRestAPI
         }
 
         private void ExportLogs()
+
         {
             // 导出日志的逻辑
-            AddLog("日志导出功能待实现");
+
+            string logMessage = "日志导出功能待实现";
+
+            AddLog(logMessage);
+
+            Logger.Log(logMessage);
         }
 
         private void AddLog(string message)
+
         {
             string timestamp = DateTime.Now.ToString("HH:mm:ss");
+
             string logEntry = $"[{timestamp}] {message}";
+
 
             logs.Add(logEntry);
 
+
             // 限制日志数量
+
             if (logs.Count > maxLogEntries)
+
             {
                 logs.RemoveAt(0);
             }
 
+
+            // 同时使用Logger记录
+
+            Logger.Log(logEntry);
+
+
             // 自动滚动到最新日志
+
             logScrollPosition.y = float.MaxValue;
 
+
             // 重绘窗口
+
             Repaint();
         }
 
@@ -604,11 +875,11 @@ namespace LocalRestAPI
             {
                 return window.isServiceRunning;
             }
-            
+
             // 否则返回false，因为无法确定服务器状态
             return false;
         }
-        
+
         public static ApiServer GetApiServer()
         {
             return window?.apiServer;
@@ -618,7 +889,7 @@ namespace LocalRestAPI
         {
             return window?.serverUrl ?? "http://localhost:8080";
         }
-       
+
         /// <summary>
         /// 获取所有定义的路由（无需启动服务器）
         /// </summary>
@@ -680,7 +951,5 @@ namespace LocalRestAPI
 
             return routeList;
         }
-        
     }
-    
 }

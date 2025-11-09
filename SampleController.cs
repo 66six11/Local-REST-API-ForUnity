@@ -62,7 +62,7 @@ namespace LocalRestAPI
     public class UnityController
 
     {
-        [GetRoute("/api/unity/scene", true)]
+        [GetRoute("/api/unity/scene")]
         public SceneInfo GetActiveScene()
 
 
@@ -101,7 +101,7 @@ namespace LocalRestAPI
         }
 
 
-        [GetRoute("/api/unity/objects", true)]
+        [GetRoute("/api/unity/objects")]
         public ObjectList GetObjectsInScene()
 
         {
@@ -169,7 +169,7 @@ namespace LocalRestAPI
         }
 
 
-        [PostRoute("/api/unity/log", true)]
+        [PostRoute("/api/unity/log")]
         public LogResponse LogMessage(string message, string type = "info")
 
         {

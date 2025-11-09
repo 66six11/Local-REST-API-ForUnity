@@ -1,1 +1,50 @@
-        /// <summary>        /// 处理 {{CONTROLLER_NAME}}.{{METHOD_NAME}} API请求        /// </summary>        public class {{HANDLER_CLASS_NAME}} : ThreadSafeApiHandler        {            public override bool NeedsMainThreadExecution()            {                return {{NEEDS_MAIN_THREAD}}; // 根据路由属性设置            }            protected override object ExecuteOnMainThread(HttpListenerRequest request, HttpListenerResponse response)            {                try                {                    // 使用预生成的参数解析器                    var parser = new PredefinedApiHandlers.{{PARAMETER_PARSER_CLASS_NAME}}();                    var parameters = parser.ParseParameters(request);                    // 直接创建控制器实例并调用方法                    var controller = new {{FULL_CONTROLLER_NAME}}();                    var result = controller.{{METHOD_NAME}}({{PARAMETER_CAST_LIST}});                    // 生成JSON响应                    string jsonResponse = result != null ? JsonUtility.ToJson(result) : JsonUtility.ToJson(new { success = true });                    SendJsonResponse(response, jsonResponse, 200);                    return result;                }                catch (System.Exception ex)                {                    SendJsonResponse(response, $"Method execution error: {ex.Message}", 500);                    return null;                }            }            private void SendJsonResponse(HttpListenerResponse response, string content, int statusCode)            {                response.StatusCode = statusCode;                response.ContentType = "application/json";                byte[] buffer = System.Text.Encoding.UTF8.GetBytes(content);                response.ContentLength64 = buffer.Length;                response.OutputStream.Write(buffer, 0, buffer.Length);            }        }
+        /// <summary>
+        /// 处理 {{CONTROLLER_FULL_NAME}}.{{METHOD_NAME}} API请求
+        /// </summary>
+        public class {{HANDLER_CLASS_NAME}} : IApiHandler
+        {
+        
+
+
+            public bool HandleRequest(HttpListenerRequest request, HttpListenerResponse response)
+            {
+                try
+                {
+                    // 使用预生成的参数解析器
+                    var parser = new PredefinedApiHandlers.{{PARAMETER_PARSER_CLASS_NAME}}();
+                    var parameters = parser.ParseParameters(request);
+
+
+                    // 直接创建控制器实例并调用方法
+                    var controller = new {{CONTROLLER_FULL_NAME}}();
+                    var result = controller.{{METHOD_NAME}}({{PARAMETER_CAST_LIST}});
+
+
+                    // 生成JSON响应
+                    string jsonResponse = result != null ? JsonUtility.ToJson(result) : JsonUtility.ToJson(new { success = true });
+                    SendJsonResponse(response, jsonResponse, 200);
+                    return true;
+                }
+                catch (System.Exception ex)
+                {
+                    SendJsonResponse(response, $"Method execution error: {ex.Message}", 500);
+                    return false;
+                }
+            }
+
+
+            private void SendJsonResponse(HttpListenerResponse response, string content, int statusCode)
+            {
+                response.StatusCode = statusCode;
+                response.ContentType = "application/json";
+
+
+                byte[] buffer = System.Text.Encoding.UTF8.GetBytes(content);
+                response.ContentLength64 = buffer.Length;
+
+
+                response.OutputStream.Write(buffer, 0, buffer.Length);
+                
+                response.OutputStream.Close();
+            }
+        }
