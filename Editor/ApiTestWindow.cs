@@ -691,7 +691,7 @@ namespace LocalRestAPI
                     requestMessage.Headers.Authorization =
                         new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
                 }
-                
+
                 // 如果是需要 body 的方法
                 if (method == "POST" || method == "PUT" || method == "PATCH")
                 {
@@ -701,16 +701,19 @@ namespace LocalRestAPI
                         jsonBody = "{}";
                     }
 
-                    Debug.Log("构建的body" + jsonBody);
+                    
                     //设置Content-Type头部
                     requestMessage.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+                    Debug.Log("构建的body" + requestMessage.Content.ReadAsStringAsync().Result);
                 }
 
+                var url = requestMessage.RequestUri;
+                Debug.Log("发送请求到: " + url);
                 response = await httpClient.SendAsync(requestMessage);
 
                 responseStatusCode = (int)response.StatusCode;
                 responseContent = await response.Content.ReadAsStringAsync();
-
+                
                 showResponse = true;
                 Repaint();
             }

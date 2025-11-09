@@ -4,6 +4,7 @@ using System.IO;
 using System.Net;
 using System.Text;
 using Newtonsoft.Json.Linq;
+using UnityEngine;
 
 namespace LocalRestAPI
 {
@@ -27,9 +28,6 @@ namespace LocalRestAPI
                                                string[] paramNames,
                                                object[] paramDefaultValues)
         {
-            
-          
-            
             if (paramTypes == null || paramNames == null)
                 throw new ArgumentNullException("paramTypes / paramNames 不能为空");
 
@@ -48,10 +46,11 @@ namespace LocalRestAPI
             bool isJson = false;
             bool isForm = false;
 
-            if (canHaveBody && request.ContentLength64 > 0)
+            // 修正：使用 HasEntityBody，兼容 chunked / 无 Content-Length 的请求
+            if (canHaveBody && request.HasEntityBody)
             {
-                body = ReadRequestBodyOnce(request);
-
+                body = LocalRestAPI.Runtime.RequestBodyCache.GetOrRead(request);
+                Debug.Log("Request Body: " + body);
                 if (!string.IsNullOrWhiteSpace(body))
                 {
                     string contentType = request.ContentType ?? string.Empty;
@@ -86,8 +85,8 @@ namespace LocalRestAPI
                 var targetType = paramTypes[i];
                 string name = paramNames[i];
                 object defaultValue = (paramDefaultValues != null && i < paramDefaultValues.Length)
-                                      ? paramDefaultValues[i]
-                                      : GetDefaultForType(targetType);
+                    ? paramDefaultValues[i]
+                    : GetDefaultForType(targetType);
 
                 string rawValue = null;
 
@@ -116,7 +115,7 @@ namespace LocalRestAPI
                 // 转换
                 result[i] = ConvertToTargetType(rawValue, targetType, defaultValue);
             }
-            
+
             return result;
         }
 
@@ -129,11 +128,14 @@ namespace LocalRestAPI
         {
             try
             {
-                using var reader = new StreamReader(request.InputStream, request.ContentEncoding, detectEncodingFromByteOrderMarks: true, bufferSize: 8192, leaveOpen: true);
+                // 修正：对缺少 charset 的请求使用 UTF8 作为回退编码
+                var enc = request.ContentEncoding ?? Encoding.UTF8;
+                using var reader = new StreamReader(request.InputStream, enc, detectEncodingFromByteOrderMarks: true, bufferSize: 8192, leaveOpen: true);
                 return reader.ReadToEnd();
             }
-            catch
+            catch (Exception ex)
             {
+                Debug.LogWarning("Failed to read request body" + ex);
                 return null;
             }
         }
@@ -153,21 +155,19 @@ namespace LocalRestAPI
                 !jo.TryGetValue(name, StringComparison.OrdinalIgnoreCase, out token))
                 return null;
 
-            if (token == null || token.Type == Newtonsoft.Json.Linq.JTokenType.Null)
+            if (token == null || token.Type == JTokenType.Null)
                 return null;
 
             switch (token.Type)
             {
-                case Newtonsoft.Json.Linq.JTokenType.String:
-                    return token.Value<string>();
-                case Newtonsoft.Json.Linq.JTokenType.Boolean:
+                case JTokenType.String:
+                    return token.Value<string>(); // "" 可被正确保留
+                case JTokenType.Boolean:
                     return token.Value<bool>() ? "true" : "false";
-                case Newtonsoft.Json.Linq.JTokenType.Integer:
-                case Newtonsoft.Json.Linq.JTokenType.Float:
-                    // 保留数值原貌
+                case JTokenType.Integer:
+                case JTokenType.Float:
                     return token.ToString(Newtonsoft.Json.Formatting.None);
                 default:
-                    // 对象或数组等
                     return token.ToString(Newtonsoft.Json.Formatting.None);
             }
         }
@@ -191,7 +191,17 @@ namespace LocalRestAPI
                         return WebUtility.UrlDecode(kv[1]);
                     }
                 }
+                else if (kv.Length == 1)
+                {
+                    // 只有键没有等号，视为显式的空值
+                    string key = WebUtility.UrlDecode(kv[0]);
+                    if (string.Equals(key, paramName, StringComparison.Ordinal))
+                    {
+                        return string.Empty;
+                    }
+                }
             }
+
             return null;
         }
 
@@ -211,7 +221,7 @@ namespace LocalRestAPI
                     return null; // 空字符串视作 null
 
                 var converted = ConvertToTargetType(raw, underlying, GetDefaultForType(underlying));
-                return converted; // 转回基础类型；上层会直接当 nullable 用
+                return converted; // 直接返回基础类型值，调用方会赋给 nullable
             }
 
             try
@@ -249,7 +259,6 @@ namespace LocalRestAPI
                 {
                     if (DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var dt))
                         return dt;
-                    // ISO8601 失败再尝试不带 Kind
                     if (DateTime.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out dt))
                         return dt;
                     return defaultValue;
@@ -292,6 +301,7 @@ namespace LocalRestAPI
                 underlying = Nullable.GetUnderlyingType(t);
                 return true;
             }
+
             underlying = null;
             return false;
         }

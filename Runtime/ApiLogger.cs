@@ -14,6 +14,8 @@ namespace LocalRestAPI
         private List<ApiLogEntry> logEntries;
         private int maxLogEntries = 1000;
 
+        public static bool IsEnabled => instance != null;
+
         public static ApiLogger Instance
         {
             get

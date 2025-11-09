@@ -187,7 +187,9 @@ namespace LocalRestAPI.Runtime
             try
             {
                 // 记录请求日志
-                ApiLogger.LogRequest(method, url, clientIp, GetHeaders(request.Headers), GetRequestBody(request), false);
+              
+                var bodyForLog = RequestBodyCache.GetOrRead(request);
+                ApiLogger.LogRequest(method, url, clientIp, GetHeaders(request.Headers),bodyForLog, false);
 
                 //检查是否是注册的API路由
                 if (path == "/api/routes" && method == "GET")
@@ -272,14 +274,23 @@ namespace LocalRestAPI.Runtime
                     SetResponse(response, "Method execution error", 500);
                 }
 
-                //关闭请求
-                response.OutputStream.Close();
+                
             }
             else
             {
                 response.StatusCode = (int)HttpStatusCode.NotFound;
                 response.StatusDescription = "Not Found";
                 SendResponse(response, "Route not found", (int)HttpStatusCode.NotFound);
+            } //关闭请求
+
+            // 统一在外层关闭一次（Handler 不再关闭）
+            try
+            {
+                response.OutputStream.Close();
+            }
+            catch
+            {
+                /* 已关闭则忽略 */
             }
         }
 
