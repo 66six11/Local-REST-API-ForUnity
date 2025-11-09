@@ -4,6 +4,7 @@ using System.IO;
 using System.Net;
 using System.Reflection;
 using System.Text;
+using LocalRestAPI.Runtime;
 using UnityEditor;
 using UnityEngine;
 
@@ -274,9 +275,9 @@ namespace LocalRestAPI
             string currentToken = "";
 
             // 从API服务器实例获取信息
-            if (apiServer != null && apiServer.IsRunning())
+            if (apiServer != null && apiServer.isRunning)
             {
-                currentServerUrl =apiServer.serverUrl;
+                currentServerUrl = apiServer.serverUrl;
                 currentToken = apiServer.accessToken;
             }
 
@@ -336,7 +337,7 @@ namespace LocalRestAPI
                 registeredRoutes.Clear();
 
                 // 只使用传入的API服务器实例
-                if (apiServer != null && apiServer.IsRunning())
+                if (apiServer != null && apiServer.isRunning)
                 {
                     registeredRoutes = apiServer.GetAllRoutes();
                 }
@@ -543,7 +544,7 @@ namespace LocalRestAPI
             string serverUrl = "http://localhost:8000";
 
             // 从API服务器实例获取URL
-            if (apiServer != null && apiServer.IsRunning())
+            if (apiServer != null && apiServer.isRunning)
             {
                 serverUrl = apiServer.serverUrl;
             }
@@ -664,7 +665,7 @@ namespace LocalRestAPI
             }
 
             // 检查API服务器实例是否运行
-            if (apiServer == null || !apiServer.IsRunning())
+            if (apiServer == null || !apiServer.isRunning)
             {
                 responseContent = "API服务器未运行，请先启动服务器。请确保在主控制台中启动服务，然后通过主控制台的测试API按钮打开此窗口。";
                 responseStatusCode = 0;
@@ -682,7 +683,7 @@ namespace LocalRestAPI
             string baseUrl = "http://localhost:8080/"; // 默认URL
 
             // 只使用API服务器实例的信息
-            if (apiServer != null && apiServer.IsRunning())
+            if (apiServer != null && apiServer.isRunning)
             {
                 // 获取主窗口的服务器URL
                 baseUrl = apiServer.serverUrl;

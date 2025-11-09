@@ -1,35 +1,44 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using UnityEditor;
 using UnityEngine;
-
+using Logger = LocalRestAPI.Runtime.Logger;
 namespace LocalRestAPI
 {
     public class ApiLogger
     {
         private static ApiLogger instance;
+        private static readonly object lockObject = new object();
         private List<ApiLogEntry> logEntries;
         private int maxLogEntries = 1000;
-        
+
         public static ApiLogger Instance
         {
             get
             {
                 if (instance == null)
                 {
-                    instance = new ApiLogger();
+                    lock (lockObject)
+                    {
+                        if (instance == null)
+                        {
+                            instance = new ApiLogger();
+                        }
+                    }
                 }
+
                 return instance;
             }
         }
-        
+
         private ApiLogger()
         {
             logEntries = new List<ApiLogEntry>();
         }
-        
-        public void LogRequest(string method, string url, string clientIp, Dictionary<string, string> headers, string body, bool isUnregisteredRoute = false)
+
+        public static void LogRequest(string method, string url, string clientIp, Dictionary<string, string> headers, string body, bool isUnregisteredRoute = false)
         {
             var logEntry = new ApiLogEntry
             {
@@ -43,11 +52,11 @@ namespace LocalRestAPI
                 Body = body,
                 IsUnregisteredRoute = isUnregisteredRoute
             };
-            
+
             AddLogEntry(logEntry);
         }
-        
-        public void LogResponse(string requestId, int statusCode, Dictionary<string, string> headers, string body, double durationMs, bool isUnregisteredRoute = false)
+
+        public static void LogResponse(string requestId, int statusCode, Dictionary<string, string> headers, string body, double durationMs, bool isUnregisteredRoute = false)
         {
             var logEntry = new ApiLogEntry
             {
@@ -63,8 +72,8 @@ namespace LocalRestAPI
             
             AddLogEntry(logEntry);
         }
-        
-        public void LogError(string message, Exception ex)
+
+        public static void LogError(string message, Exception ex)
         {
             var logEntry = new ApiLogEntry
             {
@@ -74,20 +83,23 @@ namespace LocalRestAPI
                 Message = message,
                 Exception = ex?.ToString()
             };
-            
+
             AddLogEntry(logEntry);
         }
-        
-        private void AddLogEntry(ApiLogEntry entry)
+
+        private static void AddLogEntry(ApiLogEntry entry)
         {
-            logEntries.Add(entry);
-            
-            // 限制日志条目数量
-            if (logEntries.Count > maxLogEntries)
+            lock (lockObject)
             {
-                logEntries.RemoveAt(0);
+                instance.logEntries.Add(entry);
+
+                // 限制日志条目数量
+                if (instance.logEntries.Count > instance.maxLogEntries)
+                {
+                    instance.logEntries.RemoveAt(0);
+                }
             }
-            
+
             // 同时记录到Unity控制台
             if (entry.Type == "Error")
             {
@@ -95,56 +107,69 @@ namespace LocalRestAPI
             }
             else
             {
-                RestApiMainWindow.Log($"[API] {entry.Type}: {entry.Method} {entry.Url}");
+                Logger.Log($"[API] {entry.Type}: {entry.Method} {entry.Url}");
             }
         }
-        
+
         public List<ApiLogEntry> GetLogEntries()
         {
-            return new List<ApiLogEntry>(logEntries);
+            lock (lockObject)
+            {
+                return new List<ApiLogEntry>(logEntries);
+            }
         }
-        
+
         public void ClearLogs()
         {
-            logEntries.Clear();
+            lock (lockObject)
+            {
+                logEntries.Clear();
+            }
         }
-        
+
         public void ExportLogs(string filePath)
         {
+            List<ApiLogEntry> entriesToExport;
+            
+            lock (lockObject)
+            {
+                entriesToExport = new List<ApiLogEntry>(logEntries);
+            }
+            
             try
             {
                 var lines = new List<string>();
                 lines.Add("Id,Timestamp,Type,Method,Url,StatusCode,ClientIp,DurationMs,Message");
-                
-                foreach (var entry in logEntries)
+
+                foreach (var entry in entriesToExport)
                 {
                     lines.Add($"{entry.Id},{entry.Timestamp},{entry.Type},{entry.Method},{entry.Url},{entry.StatusCode},{entry.ClientIp},{entry.DurationMs},{entry.Message}");
                 }
-                
+
                 File.WriteAllLines(filePath, lines);
-                RestApiMainWindow.Log($"日志已导出到: {filePath}");
+                Logger.Log($"日志已导出到: {filePath}");
             }
             catch (Exception ex)
             {
-                RestApiMainWindow.Log($"导出日志失败: {ex.Message}");
+                Logger.Log($"导出日志失败: {ex.Message}");
             }
         }
     }
-    
+
     public class ApiLogEntry
-        {
-            public string Id { get; set; }
-            public DateTime Timestamp { get; set; }
-            public string Type { get; set; } // Request, Response, Error
-            public string Method { get; set; }
-            public string Url { get; set; }
-            public int StatusCode { get; set; }
-            public string ClientIp { get; set; }
-            public Dictionary<string, string> Headers { get; set; }
-            public string Body { get; set; }
-            public double DurationMs { get; set; }
-            public string Message { get; set; }
-            public string Exception { get; set; }
-            public bool IsUnregisteredRoute { get; set; } // 标识是否为未注册路由
-        }
+    {
+        public string Id { get; set; }
+        public DateTime Timestamp { get; set; }
+        public string Type { get; set; } // Request, Response, Error
+        public string Method { get; set; }
+        public string Url { get; set; }
+        public int StatusCode { get; set; }
+        public string ClientIp { get; set; }
+        public Dictionary<string, string> Headers { get; set; }
+        public string Body { get; set; }
+        public double DurationMs { get; set; }
+        public string Message { get; set; }
+        public string Exception { get; set; }
+        public bool IsUnregisteredRoute { get; set; } // 标识是否为未注册路由
+    }
 }

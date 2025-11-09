@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using LocalRestAPI.Runtime;
 using UnityEditor;
 using UnityEngine;
 
@@ -57,37 +58,24 @@ namespace LocalRestAPI
             config = ApiConfig.Load();
             serverUrl = config.serverUrl;
             accessToken = config.accessToken;
-
             // 注册日志回调
             Application.logMessageReceived += HandleLog;
-
             // 定期更新性能指标
             EditorApplication.update += UpdatePerformanceMetrics;
-            
-            // 处理主线程队列
-            EditorApplication.update += ProcessMainThreadQueue;
         }
 
         private void OnDisable()
         {
             // 取消注册日志回调
             Application.logMessageReceived -= HandleLog;
-
             // 停止服务
             StopService();
-
             // 取消注册性能指标更新
             EditorApplication.update -= UpdatePerformanceMetrics;
             
-            // 取消注册主线程队列处理
-            EditorApplication.update -= ProcessMainThreadQueue;
         }
         
-        private void ProcessMainThreadQueue()
-        {
-            // 处理API服务器的主线程队列
-            MainThreadDispatcher.ProcessQueue();
-        }
+    
 
         private void HandleLog(string condition, string stackTrace, LogType type)
         {
@@ -369,7 +357,7 @@ namespace LocalRestAPI
                 }
 
                 apiServer.Start();
-                isServiceRunning = apiServer.IsRunning();
+                isServiceRunning = apiServer.isRunning;
                 serviceStatus = isServiceRunning ? "运行中" : "启动失败";
 
                 if (isServiceRunning)
@@ -630,11 +618,7 @@ namespace LocalRestAPI
         {
             return window?.serverUrl ?? "http://localhost:8080";
         }
-        public static List<RouteInfo> GetRegisteredRoutes()
-        {
-            return window?.apiServer?.GetAllRoutes() ?? new List<RouteInfo>();
-        }
-
+       
         /// <summary>
         /// 获取所有定义的路由（无需启动服务器）
         /// </summary>
@@ -698,16 +682,5 @@ namespace LocalRestAPI
         }
         
     }
-
-
-    [Serializable]
-    public class RouteInfo
-
-    {
-        public string method;
-
-        public string path;
-
-        public string handler;
-    }
+    
 }
