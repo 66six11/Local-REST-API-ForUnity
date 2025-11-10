@@ -5,6 +5,7 @@ using System.Threading;
 using UnityEditor;
 using UnityEngine;
 using Logger = LocalRestAPI.Runtime.Logger;
+
 namespace LocalRestAPI
 {
     public class ApiLogger
@@ -71,7 +72,7 @@ namespace LocalRestAPI
                 DurationMs = durationMs,
                 IsUnregisteredRoute = isUnregisteredRoute
             };
-            
+
             AddLogEntry(logEntry);
         }
 
@@ -101,16 +102,6 @@ namespace LocalRestAPI
                     Instance.logEntries.RemoveAt(0);
                 }
             }
-
-            // 同时记录到Unity控制台
-            if (entry.Type == "Error")
-            {
-                Debug.LogError($"[API] {entry.Message}\n{entry.Exception}");
-            }
-            else
-            {
-                Logger.Log($"[API] {entry.Type}: {entry.Method} {entry.Url}");
-            }
         }
 
         public List<ApiLogEntry> GetLogEntries()
@@ -132,12 +123,12 @@ namespace LocalRestAPI
         public void ExportLogs(string filePath)
         {
             List<ApiLogEntry> entriesToExport;
-            
+
             lock (lockObject)
             {
                 entriesToExport = new List<ApiLogEntry>(logEntries);
             }
-            
+
             try
             {
                 var lines = new List<string>();

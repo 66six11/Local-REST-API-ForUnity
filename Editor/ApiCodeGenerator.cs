@@ -57,6 +57,7 @@ namespace LocalRestAPI
             generatedCode.AppendLine("    public static class PredefinedApiHandlers");
             generatedCode.AppendLine("    {");
 
+
             // 为每个API路由生成对应的处理器类和参数解析器类
             foreach (var (method, path, methodInfo, controllerType) in routes)
             {
@@ -69,7 +70,8 @@ namespace LocalRestAPI
                 // 生成API处理器类
                 HandlerClassGenerator.GenerateHandlerClass(generatedCode, handlerName, methodInfo, controllerType, parameterParserName);
             }
-
+            generatedCode.AppendLine("        // 预生成的API处理器类 - 自动从API控制器生成");
+            generatedCode.AppendLine("    private static string Escape(string s) =>\n                s?.Replace(\"\\\\\", \"\\\\\\\\\").Replace(\"\\\"\", \"\\\\\\\"\") ?? \"\";      ");
             generatedCode.AppendLine("    }");
             generatedCode.AppendLine("}");
 

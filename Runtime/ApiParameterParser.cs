@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Text;
+using LocalRestAPI.Runtime;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 
@@ -49,8 +50,8 @@ namespace LocalRestAPI
             // 修正：使用 HasEntityBody，兼容 chunked / 无 Content-Length 的请求
             if (canHaveBody && request.HasEntityBody)
             {
-                body = LocalRestAPI.Runtime.RequestBodyCache.GetOrRead(request);
-                Debug.Log("Request Body: " + body);
+                body = RequestBodyCache.GetOrRead(request);
+                
                 if (!string.IsNullOrWhiteSpace(body))
                 {
                     string contentType = request.ContentType ?? string.Empty;

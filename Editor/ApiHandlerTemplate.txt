@@ -3,7 +3,7 @@
 /// </summary>
 public class {{HANDLER_CLASS_NAME}} : IApiHandler
 {
-    public bool HandleRequest(HttpListenerRequest request, HttpListenerResponse response)
+    public bool HandleRequest(HttpListenerRequest request,  ResponseBuffer buffer)
     {
         try
         {
@@ -19,27 +19,22 @@ public class {{HANDLER_CLASS_NAME}} : IApiHandler
             string jsonResponse = result != null 
                 ? UnityEngine.JsonUtility.ToJson(result) 
                 : UnityEngine.JsonUtility.ToJson(new LocalRestAPI.Runtime.BasicSuccessResponse());
-            SendJsonResponse(response, jsonResponse, 200);
+            buffer.StatusCode = 200;
+            buffer.ContentType = "application/json";
+            buffer.Body = jsonResponse;
+            buffer.RawBytes = null;
+            
             return true;
+           
         }
         catch (System.Exception ex)
         {
-            SendJsonResponse(response, $"Method execution error: {ex.Message}", 500);
+            buffer.StatusCode = 500;
+            buffer.ContentType = "application/json";
+            buffer.Body = "{\"error\":\"" + Escape(ex.Message) + "\"}";
+            buffer.RawBytes = null;
             return false;
         }
     }
 
-    private void SendJsonResponse(HttpListenerResponse response, string content, int statusCode)
-    {
-        response.StatusCode = statusCode;
-        response.ContentType = "application/json";
-
-        byte[] buffer = System.Text.Encoding.UTF8.GetBytes(content ?? "{}");
-        response.ContentLength64 = buffer.Length;
-
-        using (var os = response.OutputStream)
-        {
-            os.Write(buffer, 0, buffer.Length);
-        }
-    }
 }

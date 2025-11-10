@@ -708,7 +708,6 @@ namespace LocalRestAPI
                 }
 
                 var url = requestMessage.RequestUri;
-                Debug.Log("发送请求到: " + url);
                 response = await httpClient.SendAsync(requestMessage);
 
                 responseStatusCode = (int)response.StatusCode;
@@ -736,7 +735,7 @@ namespace LocalRestAPI
             var selectedRoute = registeredRoutes[selectedRouteIndex];
             var baseUrl = BuildBaseRequestUrl(selectedRoute);
 
-            Debug.Log($"发送请求到: {baseUrl}, 方法: {selectedRoute.method}");
+            Runtime.Logger.Log($"发送请求到: {baseUrl}, 方法: {selectedRoute.method}");
 
             await SendHttpRequestAsync(baseUrl, selectedRoute);
         }

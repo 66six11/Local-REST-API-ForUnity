@@ -191,9 +191,9 @@ namespace LocalRestAPI
             DrawRouteList();
 
 
-            // 日志面板
-
-            DrawLogPanel();
+            // // 日志面板
+            //
+            // DrawLogPanel();
 
 
             // Logger日志面板
@@ -470,7 +470,7 @@ namespace LocalRestAPI
         {
             EditorGUILayout.BeginVertical(GUI.skin.box);
 
-            GUILayout.Label("Logger日志", EditorStyles.boldLabel);
+            GUILayout.Label("控制台日志", EditorStyles.boldLabel);
 
 
             loggerScrollPosition = EditorGUILayout.BeginScrollView(loggerScrollPosition, GUILayout.Height(0), GUILayout.MinHeight(150));
@@ -478,7 +478,7 @@ namespace LocalRestAPI
 
             var loggerLogs = LocalRestAPI.Runtime.Logger.GetLogs();
 
-            for (int i = loggerLogs.Count - 1; i >= 0; i--) // 从最新的开始显示
+            for (int i = 0; i < loggerLogs.Count; i++) // 从最新的开始显示
 
             {
                 var logItem = loggerLogs[i];
@@ -509,11 +509,9 @@ namespace LocalRestAPI
 
                 EditorGUILayout.SelectableLabel(logItem.message, style, GUILayout.Height(15));
             }
-
+            
 
             EditorGUILayout.EndScrollView();
-
-
             EditorGUILayout.BeginHorizontal();
 
             if (GUILayout.Button("清空Logger日志"))
@@ -562,26 +560,8 @@ namespace LocalRestAPI
                 serviceStatus = isServiceRunning ? "运行中" : "启动失败";
 
 
-                if (isServiceRunning)
-
-                {
-                    AddLog("REST API服务已启动");
-
-                    AddLog($"监听地址: {serverUrl}");
-
-                    AddLog($"访问令牌: {accessToken}");
-
-
-                    // 刷新路由列表
-
-                    RefreshRouteList();
-                }
-
-                else
-
-                {
-                    AddLog("REST API服务启动失败");
-                }
+           
+                RefreshRouteList();
             }
 
             catch (Exception ex)
@@ -822,9 +802,9 @@ namespace LocalRestAPI
         private void AddLog(string message)
 
         {
-            string timestamp = DateTime.Now.ToString("HH:mm:ss");
+          
 
-            string logEntry = $"[{timestamp}] {message}";
+            string logEntry = $"{message}";
 
 
             logs.Add(logEntry);

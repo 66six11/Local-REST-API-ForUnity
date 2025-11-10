@@ -1,12 +1,9 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.IO;
 using System.Net;
-using System.Reflection;
 using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 using UnityEngine;
 
 namespace LocalRestAPI.Runtime
@@ -19,38 +16,29 @@ namespace LocalRestAPI.Runtime
 
         private HttpListener httpListener;
         private Thread listenerThread;
-        private CancellationTokenSource cancellationTokenSource;
+        private System.Threading.CancellationTokenSource cancellationTokenSource;
 
-        // 使用线程安全的并发字典
-        private ConcurrentDictionary<string, ApiRoute> apiRoutes = new ConcurrentDictionary<string, ApiRoute>();
+        private readonly ConcurrentDictionary<string, ApiRoute> apiRoutes = new ConcurrentDictionary<string, ApiRoute>();
 
         public ApiServer(string serverUrl, string accessToken)
         {
             this.serverUrl = serverUrl;
             this.accessToken = accessToken;
-            this.cancellationTokenSource = new CancellationTokenSource();
+            this.cancellationTokenSource = new System.Threading.CancellationTokenSource();
         }
 
         public void Start()
         {
-            if (isRunning)
-            {
-                return;
-            }
+            if (isRunning) return;
 
-            Uri url = null;
-            if (UrlUtility.IsUrl(serverUrl))
-            {
-                url = new Uri(serverUrl);
-            }
-            else
+            if (!UrlUtility.IsUrl(serverUrl))
             {
                 Logger.Log("服务器地址不正确，请检查是否包含http://或https://或者以/结尾", LogLevel.Error);
                 return;
             }
 
+            var url = new Uri(serverUrl);
 
-            // 检查端口是否被占用
             try
             {
                 PortChecker.ValidatePort(url.Port);
@@ -66,25 +54,22 @@ namespace LocalRestAPI.Runtime
                 catch (Exception e2)
                 {
                     Logger.Log(e2.Message);
-                    return;
                 }
 
                 return;
             }
 
-            //启动服务器
             try
             {
                 httpListener = new HttpListener();
                 httpListener.Prefixes.Add(serverUrl);
                 httpListener.Start();
 
-                //注册路由
                 RegisterRoutes();
-                // 启动监听线程
-                listenerThread = new Thread(ListenForRequests);
-                listenerThread.IsBackground = true;
+
+                listenerThread = new Thread(ListenForRequests) { IsBackground = true };
                 listenerThread.Start();
+
                 isRunning = true;
                 Logger.Log("服务器已启动，监听地址为: " + serverUrl);
                 Logger.Log("访问令牌: " + accessToken);
@@ -137,25 +122,21 @@ namespace LocalRestAPI.Runtime
                 httpListener = null;
                 listenerThread = null;
                 cancellationTokenSource = null;
-            
             }
-            
         }
 
         private void ListenForRequests()
         {
-            while (isRunning && !cancellationTokenSource.Token.IsCancellationRequested)
+            while (isRunning && cancellationTokenSource != null && !cancellationTokenSource.Token.IsCancellationRequested)
             {
                 try
                 {
-                    // 使用异步方式获取上下文，避免阻塞
                     var context = httpListener.GetContext();
                     ThreadPool.QueueUserWorkItem(_ => ProcessRequest(context));
                 }
                 catch (HttpListenerException) when (!isRunning)
                 {
-                    // 服务器停止时的正常异常
-                    break;
+                    break; // stopping
                 }
                 catch (Exception ex)
                 {
@@ -164,7 +145,7 @@ namespace LocalRestAPI.Runtime
                         Logger.LogError($"处理请求时出错: {ex.Message}");
                     }
 
-                    Thread.Sleep(100); // 避免频繁错误循环
+                    Thread.Sleep(100);
                 }
             }
         }
@@ -173,8 +154,9 @@ namespace LocalRestAPI.Runtime
         {
             var request = context.Request;
             var response = context.Response;
-            string requestId = Guid.NewGuid().ToString();
+            var buffer = new ResponseBuffer(); // 核心：本次请求的响应缓冲
 
+            string requestId = Guid.NewGuid().ToString();
             string method = request.HttpMethod;
             string url = request.Url.ToString();
             string path = request.Url.AbsolutePath;
@@ -186,154 +168,101 @@ namespace LocalRestAPI.Runtime
 
             try
             {
-                // 记录请求日志
-              
+                // 请求日志：使用缓存读取的 body（不会关闭流）
                 var bodyForLog = RequestBodyCache.GetOrRead(request);
-                ApiLogger.LogRequest(method, url, clientIp, GetHeaders(request.Headers),bodyForLog, false);
+                ApiLogger.LogRequest(method, url, clientIp, GetHeaders(request.Headers), bodyForLog ?? "", false);
 
-                //检查是否是注册的API路由
+                // 内置路由：列出
                 if (path == "/api/routes" && method == "GET")
                 {
-                    HandleRoutesRequest(response);
+                    HandleRoutesRequest(buffer);
                     return;
                 }
 
                 if (!apiRoutes.ContainsKey(routeKey))
                 {
-                    Logger.Log(routeKey + " 未注册的API路由", LogLevel.Warning);
                     isUnregisteredRoute = true;
-                    response.StatusCode = (int)HttpStatusCode.NotFound;
-                    response.StatusDescription = "Not Found";
-                    SendResponse(response, "Route not found", (int)HttpStatusCode.NotFound);
+                    FillBuffer(buffer, (int)HttpStatusCode.NotFound, "text/plain", "Route not found");
                     return;
                 }
 
-                //验证访问令牌
                 if (!ValidateAccessToken(request))
                 {
-                    response.StatusCode = (int)HttpStatusCode.Unauthorized;
-                    Logger.Log("访问令牌验证失败", LogLevel.Error);
-                    SendResponse(response, "Unauthorized", (int)HttpStatusCode.Unauthorized);
+                    FillBuffer(buffer, (int)HttpStatusCode.Unauthorized, "text/plain", "Unauthorized");
                     return;
                 }
 
-                //处理API请求
-                HandleApiRequest(request, response, startTime, clientIp, requestId);
+                HandleApiRequest(request, buffer, routeKey, response);
             }
             catch (Exception ex)
             {
                 Logger.LogError($"处理API请求时出错: {ex.Message}");
-                try
-                {
-                    SendResponse(response, $"Internal Server Error: {ex.Message}", 500);
-                }
-                catch
-                {
-                    // 忽略响应发送失败
-                }
+                FillBuffer(buffer, 500, "text/plain", $"Internal Server Error: {ex.Message}");
             }
             finally
             {
-                // 记录性能指标
-                double duration = (DateTime.Now - startTime).TotalMilliseconds;
-                ApiPerformanceMonitor.RecordApiCall(method, path, response.StatusCode, duration, clientIp, isUnregisteredRoute);
+               
+                WriteBufferedResponse(response, buffer);
 
-                // 记录响应日志
-                ApiLogger.LogResponse(requestId, response.StatusCode, GetHeaders(response.Headers),
-                    GetResponseBody(response), duration, isUnregisteredRoute);
+                double duration = (DateTime.Now - startTime).TotalMilliseconds;
+                ApiPerformanceMonitor.RecordApiCall(method, path, buffer.StatusCode == 0 ? response.StatusCode : buffer.StatusCode, duration, clientIp, isUnregisteredRoute);
+                string respBodyForLog = buffer.Body ?? (buffer.RawBytes != null ? $"[bytes:{buffer.RawBytes.Length}]" : "");
+               
+                ApiLogger.LogResponse(requestId,
+                    buffer.StatusCode == 0 ? response.StatusCode : buffer.StatusCode,
+                    GetHeaders(response.Headers),
+                    respBodyForLog,
+                    duration,
+                    isUnregisteredRoute);
+
+                try
+                {
+                    response.OutputStream.Close();
+                }
+                catch
+                {
+                }
             }
         }
 
-        private void HandleApiRequest(HttpListenerRequest request, HttpListenerResponse response,
-                                      DateTime startTime, string clientIp, string requestId)
+        private void HandleApiRequest(HttpListenerRequest request,
+                                      ResponseBuffer buffer,
+                                      string routeKey,
+                                      HttpListenerResponse legacyResponseForFallback)
         {
-            string path = request.Url.AbsolutePath;
-            string method = request.HttpMethod;
-
-            string routeKey = GetRoutekey(method, path);
-
-            if (apiRoutes.TryGetValue(routeKey, out var route))
+            if (!apiRoutes.TryGetValue(routeKey, out var route))
             {
-                // 同步调用主线程并等待完成
+                FillBuffer(buffer, (int)HttpStatusCode.NotFound, "text/plain", "Route not found");
+                return;
+            }
+
+            // 优先走新接口（缓冲）
+            if (route.Handler is { } buffered)
+            {
                 bool success = MainThreadDispatcher.Invoke(() =>
                 {
                     try
                     {
-                        return route.Handler.HandleRequest(request, response);
+                        return buffered.HandleRequest(request, buffer);
                     }
                     catch (Exception ex)
                     {
                         Logger.LogError($"处理API请求时发生异常: {ex.Message}");
-                        SetResponse(response, $"Handler error: {ex.Message}", 500);
+                        FillBuffer(buffer, 500, "text/plain", $"Handler error: {ex.Message}");
                         return false;
                     }
                 });
 
-                if (!success)
+                if (!success && !buffer.HasPayload)
                 {
-                    SetResponse(response, "Method execution error", 500);
-                }
-
-                
-            }
-            else
-            {
-                response.StatusCode = (int)HttpStatusCode.NotFound;
-                response.StatusDescription = "Not Found";
-                SendResponse(response, "Route not found", (int)HttpStatusCode.NotFound);
-            } //关闭请求
-
-            // 统一在外层关闭一次（Handler 不再关闭）
-            try
-            {
-                response.OutputStream.Close();
-            }
-            catch
-            {
-                /* 已关闭则忽略 */
-            }
-        }
-
-        private Dictionary<string, string> GetHeaders(System.Collections.Specialized.NameValueCollection headers)
-        {
-            var result = new Dictionary<string, string>();
-            foreach (string key in headers.AllKeys)
-            {
-                result[key] = headers[key];
-            }
-
-            return result;
-        }
-
-        private string GetRequestBody(HttpListenerRequest request)
-        {
-            if (request.HasEntityBody)
-            {
-                try
-                {
-                    using var reader = new StreamReader(request.InputStream, request.ContentEncoding);
-                    return reader.ReadToEnd();
-                }
-                catch
-                {
-                    return "[Unable to read request body]";
+                    FillBuffer(buffer, 500, "text/plain", "Method execution error");
                 }
             }
-
-            return string.Empty;
         }
 
-        private string GetResponseBody(HttpListenerResponse response)
-        {
-            // 注意：这里需要特殊处理来获取响应体
-            // 在实际实现中，可能需要修改响应处理方式来捕获响应内容
-            return "[Response body logged separately]";
-        }
-
-        private void HandleRoutesRequest(HttpListenerResponse response)
+        private void HandleRoutesRequest(ResponseBuffer buffer)
         {
             var routeList = new RouteListWrapper();
-
             foreach (var route in apiRoutes)
             {
                 var parts = route.Key.Split(' ');
@@ -346,74 +275,76 @@ namespace LocalRestAPI.Runtime
             }
 
             string jsonResponse = JsonUtility.ToJson(routeList);
-            SendResponse(response, jsonResponse, 200, "application/json");
+            FillBuffer(buffer, 200, "application/json", jsonResponse);
         }
 
-        [System.Serializable]
+        [Serializable]
         private class RouteListWrapper
         {
             public List<RouteInfo> routes;
 
             public void Add(RouteInfo route)
             {
-                if (routes == null)
-                {
-                    routes = new List<RouteInfo>();
-                }
-
+                routes ??= new List<RouteInfo>();
                 routes.Add(route);
             }
         }
 
-        private void SendResponse(HttpListenerResponse response, string content, int statusCode, string contentType = "text/plain")
+        private void FillBuffer(ResponseBuffer buffer, int statusCode, string contentType, string body)
         {
-            SetResponse(response, content, statusCode, contentType);
-            response.OutputStream.Close();
+            buffer.StatusCode = statusCode;
+            buffer.ContentType = contentType;
+            buffer.Body = body ?? "";
+            buffer.RawBytes = null;
         }
 
-        private void SetResponse(HttpListenerResponse response, string content, int statusCode, string contentType = "text/plain")
+        private void WriteBufferedResponse(HttpListenerResponse response, ResponseBuffer buffer)
         {
+            // 若无缓冲载荷，说明走了旧 Handler 并已写出，这里不重复写
+            if (!buffer.HasPayload) return;
+
             try
             {
-                response.StatusCode = statusCode;
-                response.ContentType = contentType;
+                response.StatusCode = buffer.StatusCode == 0 ? 200 : buffer.StatusCode;
+                response.ContentType = string.IsNullOrEmpty(buffer.ContentType) ? "text/plain" : buffer.ContentType;
 
-                byte[] buffer = Encoding.UTF8.GetBytes(content);
-                response.ContentLength64 = buffer.Length;
-
-                response.OutputStream.Write(buffer, 0, buffer.Length);
+                byte[] data = buffer.RawBytes ?? Encoding.UTF8.GetBytes(buffer.Body ?? "");
+                response.ContentLength64 = data.Length;
+                response.OutputStream.Write(data, 0, data.Length);
+                response.OutputStream.Flush();
             }
             catch (Exception ex)
             {
-                Logger.LogError($"发送响应时出错: {ex.Message}");
+                Logger.LogError($"写出响应失败: {ex.Message}");
                 try
                 {
                     response.Abort();
                 }
                 catch
                 {
-                    // 忽略中止异常
                 }
             }
+        }
+
+        private Dictionary<string, string> GetHeaders(System.Collections.Specialized.NameValueCollection headers)
+        {
+            var result = new Dictionary<string, string>();
+            foreach (string key in headers.AllKeys)
+                result[key] = headers[key];
+            return result;
         }
 
         private bool ValidateAccessToken(HttpListenerRequest request)
         {
             string token = request.Headers["Authorization"];
             if (string.IsNullOrEmpty(token))
-            {
                 token = request.QueryString["token"];
-            }
 
             if (string.IsNullOrEmpty(token))
-            {
                 return false;
-            }
 
             if (token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-            {
                 token = token.Substring(7);
-            }
 
             return token == accessToken;
         }
@@ -424,7 +355,7 @@ namespace LocalRestAPI.Runtime
             string routeKey = GetRoutekey(method, path);
             var route = new ApiRoute(method, path, handler, parameterParser, controllerName, methodName);
 
-            apiRoutes.AddOrUpdate(routeKey, route, (key, existing) => route);
+            apiRoutes.AddOrUpdate(routeKey, route, (key, _) => route);
             Logger.Log($"注册API路由: {routeKey} -> {controllerName}.{methodName}");
         }
 
@@ -432,9 +363,7 @@ namespace LocalRestAPI.Runtime
         {
             string routeKey = GetRoutekey(method, path);
             if (apiRoutes.TryRemove(routeKey, out _))
-            {
                 Logger.Log($"注销API路由: {routeKey}");
-            }
         }
 
         public void Dispose()
@@ -446,7 +375,6 @@ namespace LocalRestAPI.Runtime
         public List<RouteInfo> GetAllRoutes()
         {
             var routeList = new List<RouteInfo>();
-
             foreach (var route in apiRoutes)
             {
                 var parts = route.Key.Split(' ');
@@ -461,9 +389,6 @@ namespace LocalRestAPI.Runtime
             return routeList;
         }
 
-        public string GetRoutekey(string method, string path)
-        {
-            return $"{method} {path}";
-        }
+        public string GetRoutekey(string method, string path) => $"{method} {path}";
     }
 }

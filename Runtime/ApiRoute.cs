@@ -23,6 +23,7 @@ namespace LocalRestAPI.Runtime
             MethodName = methodName;
         }
     }
+
     [Serializable]
     public class RouteInfo
 
@@ -33,6 +34,7 @@ namespace LocalRestAPI.Runtime
 
         public string handler;
     }
+
     /// <summary>
     /// API参数解析器接口
     /// </summary>
@@ -53,8 +55,10 @@ namespace LocalRestAPI.Runtime
         /// 处理API请求
         /// </summary>
         /// <param name="request">HTTP请求</param>
-        /// <param name="response">HTTP响应</param>
+        /// <param name="buffer">响应缓存</param>
         /// <returns>是否成功处理</returns>
-        bool HandleRequest(HttpListenerRequest request, HttpListenerResponse response);
+        bool HandleRequest(HttpListenerRequest request, ResponseBuffer buffer);
     }
+
+
 }
