@@ -98,7 +98,7 @@ namespace LocalRestAPI.Runtime
 
         private void RegisterRoutes()
         {
-            PredefinedRouteRegistrar.RegisterRoutes(this);
+             PredefinedRouteRegistrar.RegisterRoutes(this);
         }
 
         public void Stop()

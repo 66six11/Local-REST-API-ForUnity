@@ -1,32 +1,31 @@
-using System;
-using System.IO;
-using System.Linq;
-using System.Reflection;
-using System.Text;
-using UnityEngine;
-
-namespace LocalRestAPI
-{
-    /// <summary>
-    /// 参数解析器代码生成器：生成“硬编码参数元数据 + 统一解析器调用”的解析器类
-    /// </summary>
-    public static class ParameterParserGenerator
-    {
-        public static void GenerateParameterParserClass(
-            StringBuilder sb,
-            string className,
-            MethodInfo methodInfo)
-        {
-            var templatePath = Path.Combine(
-                Path.GetDirectoryName(Application.dataPath),
-                "Assets", "LocalRestAPI", "Editor", "ParameterParserTemplate.txt");
-
-            if (!File.Exists(templatePath))
-            {
-                Debug.LogError($"ParameterParserTemplate.txt 模板文件不存在: {templatePath}");
-                return;
-            }
-
+using System;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Text;
+using UnityEngine;
+
+namespace LocalRestAPI
+{
+    /// <summary>
+    /// 参数解析器代码生成器：生成“硬编码参数元数据 + 统一解析器调用”的解析器类
+    /// </summary>
+    public static class ParameterParserGenerator
+    {
+        public static void GenerateParameterParserClass(
+            StringBuilder sb,
+            string className,
+            MethodInfo methodInfo)
+        {
+            var templatePath = Path.Combine(
+                CodeGenerationConstants.TemplatesDirectory, "ParameterParserTemplate.txt");
+
+            if (!File.Exists(templatePath))
+            {
+                Debug.LogError($"ParameterParserTemplate.txt 模板文件不存在: {templatePath}");
+                return;
+            }
+
             string template = File.ReadAllText(templatePath, Encoding.UTF8);
 
             var parameters = methodInfo.GetParameters();

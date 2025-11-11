@@ -19,7 +19,7 @@ namespace LocalRestAPI
         public static void GenerateRouteRegistrationCode(List<(string method, string path, MethodInfo methodInfo, Type controllerType)> routes)
         {
             // 读取模板
-            var templatePath = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Assets", "LocalRestAPI", "Editor", "RouteRegistrarTemplate.txt");
+            var templatePath = Path.Combine(CodeGenerationConstants.TemplatesDirectory, "RouteRegistrarTemplate.txt");
             if (!File.Exists(templatePath))
             {
                 Debug.LogError($"路由注册器模板文件不存在: {templatePath}");
@@ -44,8 +44,16 @@ namespace LocalRestAPI
 
             template = template.Replace("{{ROUTE_REGISTRATION_CODE}}", routeRegistrationCode.ToString());
 
+            // 确保生成代码的目录存在
+
+            CodeGenerationConstants.EnsureDirectoryExists(CodeGenerationConstants.GeneratedCodeDirectory);
+
+            
+
             // 写入文件
-            var outputPath = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Assets", "LocalRestAPI", "Runtime", "GeneratedRouteRegistrar.cs");
+
+            var outputPath = Path.Combine(CodeGenerationConstants.GeneratedCodeDirectory, "GeneratedRouteRegistrar.cs");
+
             File.WriteAllText(outputPath, template, Encoding.UTF8);
         }
     }

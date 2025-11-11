@@ -1,10 +1,10 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Reflection;
-using System.Text;
-using UnityEditor;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Text;
+using UnityEditor;
 using UnityEngine;
 
 namespace LocalRestAPI
@@ -75,8 +75,11 @@ namespace LocalRestAPI
             generatedCode.AppendLine("    }");
             generatedCode.AppendLine("}");
 
-            // 写入文件
-            var outputPath = Path.Combine(Path.GetDirectoryName(Application.dataPath), "Assets", "LocalRestAPI", "Runtime", "GeneratedApiHandlers.cs");
+            // 确保生成代码的目录存在
+            CodeGenerationConstants.EnsureDirectoryExists(CodeGenerationConstants.GeneratedCodeDirectory);
+            
+            // 写入文件
+            var outputPath = Path.Combine(CodeGenerationConstants.GeneratedCodeDirectory, "GeneratedApiHandlers.cs");
             File.WriteAllText(outputPath, generatedCode.ToString(), Encoding.UTF8);
         }
 
