@@ -11,9 +11,8 @@ public class {{HANDLER_CLASS_NAME}} : IApiHandler
             var parser = new PredefinedApiHandlers.{{PARAMETER_PARSER_CLASS_NAME}}();
             var parameters = parser.ParseParameters(request);
 
-            // 直接创建控制器实例并调用方法
-            var controller = new {{CONTROLLER_FULL_NAME}}();
-            var result = controller.{{METHOD_NAME}}({{PARAMETER_CAST_LIST}});
+            // 调用控制器方法
+            var result = {{CONTROLLER_FULL_NAME}}.{{METHOD_NAME}}({{PARAMETER_CAST_LIST}});
 
             // 生成JSON响应（使用可序列化的响应类型，避免匿名类型）
             string jsonResponse = result != null 

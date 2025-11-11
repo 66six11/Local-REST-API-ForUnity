@@ -13,7 +13,7 @@ namespace LocalRestAPI
         private static MainThreadDispatcher _instance;
         private static readonly ConcurrentQueue<Action> _actionQueue = new ConcurrentQueue<Action>();
         private static readonly ConcurrentQueue<(Action, ManualResetEvent)> _syncActionQueue = new ConcurrentQueue<(Action, ManualResetEvent)>();
-        
+
         public static MainThreadDispatcher Instance
         {
             get
@@ -22,6 +22,7 @@ namespace LocalRestAPI
                 {
                     CreateInstance();
                 }
+
                 return _instance;
             }
         }
@@ -33,16 +34,16 @@ namespace LocalRestAPI
             CreateInstance();
         }
 
-#if UNITY_EDITOR
+        #if UNITY_EDITOR
         [UnityEditor.InitializeOnLoadMethod]
         private static void InitializeEditor()
         {
             // 编辑器模式下注册更新回调
             UnityEditor.EditorApplication.update += EditorUpdate;
-            
+
             // 编辑器退出时清理
             UnityEditor.EditorApplication.quitting += OnEditorQuitting;
-            
+
             // 确保在编辑器模式下也有实例
             UnityEditor.EditorApplication.delayCall += () =>
             {
@@ -70,7 +71,7 @@ namespace LocalRestAPI
             {
                 CreateEditorInstance();
             }
-            
+
             if (_instance != null && !Application.isPlaying)
             {
                 ProcessQueues();
@@ -88,11 +89,11 @@ namespace LocalRestAPI
                 hideFlags = HideFlags.HideAndDontSave
             };
             _instance = go.AddComponent<MainThreadDispatcher>();
-            
+
             // 设置为主线程
             _instance.mainThread = Thread.CurrentThread;
         }
-#endif
+        #endif
 
         private static void CreateInstance()
         {
@@ -112,13 +113,13 @@ namespace LocalRestAPI
                 _instance = go.AddComponent<MainThreadDispatcher>();
                 DontDestroyOnLoad(go);
             }
-#if UNITY_EDITOR
+            #if UNITY_EDITOR
             else
             {
                 // 编辑器非播放模式
                 CreateEditorInstance();
             }
-#endif
+            #endif
         }
 
         private void Update()
@@ -177,7 +178,7 @@ namespace LocalRestAPI
             }
 
             _actionQueue.Enqueue(action);
-            
+
             // 确保在编辑器模式下有实例处理队列
             if (_instance == null)
             {
@@ -201,13 +202,13 @@ namespace LocalRestAPI
             using (var resetEvent = new ManualResetEvent(false))
             {
                 _syncActionQueue.Enqueue((action, resetEvent));
-                
+
                 // 确保在编辑器模式下有实例处理队列
                 if (_instance == null)
                 {
                     CreateInstance();
                 }
-                
+
                 resetEvent.WaitOne();
             }
         }
@@ -238,15 +239,16 @@ namespace LocalRestAPI
                         Debug.LogError($"主线程函数执行异常: {ex}");
                     }
                 }, resetEvent));
-                
+
                 // 确保在编辑器模式下有实例处理队列
                 if (_instance == null)
                 {
                     CreateInstance();
                 }
-                
+
                 resetEvent.WaitOne();
             }
+
             return result;
         }
 
@@ -274,18 +276,19 @@ namespace LocalRestAPI
             using (var resetEvent = new ManualResetEvent(false))
             {
                 _syncActionQueue.Enqueue((action, resetEvent));
-                
+
                 // 确保在编辑器模式下有实例处理队列
                 if (_instance == null)
                 {
                     CreateInstance();
                 }
-                
+
                 bool completed = resetEvent.WaitOne(timeoutMilliseconds);
                 if (!completed)
                 {
                     Debug.LogError($"主线程调用超时 ({timeoutMilliseconds}ms)");
                 }
+
                 return completed;
             }
         }
@@ -310,7 +313,7 @@ namespace LocalRestAPI
 
             _instance = this;
             mainThread = Thread.CurrentThread;
-            
+
             if (Application.isPlaying)
             {
                 DontDestroyOnLoad(gameObject);
@@ -325,7 +328,7 @@ namespace LocalRestAPI
             }
         }
 
-#if UNITY_EDITOR
+        #if UNITY_EDITOR
         private void OnApplicationQuit()
         {
             // 清理编辑器模式的实例
@@ -335,6 +338,6 @@ namespace LocalRestAPI
                 _instance = null;
             }
         }
-#endif
+        #endif
     }
 }

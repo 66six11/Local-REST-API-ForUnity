@@ -12,7 +12,7 @@ namespace LocalRestAPI
     public class SampleController
     {
         [GetRoute("/api/sample/hello")]
-        public HelloResponse Hello(string name = "World")
+        public static HelloResponse Hello(string name = "World")
         {
             return new HelloResponse
             {
@@ -22,7 +22,7 @@ namespace LocalRestAPI
         }
 
         [PostRoute("/api/sample/echo")]
-        public EchoResponse Echo(string message)
+        public static EchoResponse Echo(string message)
         {
             return new EchoResponse
             {
@@ -33,7 +33,7 @@ namespace LocalRestAPI
         }
 
         [GetRoute("/api/sample/random")]
-        public RandomResponse GetRandom(int min = 0, int max = 100)
+        public  static RandomResponse GetRandom(int min = 0, int max = 100)
         {
             var random = new System.Random();
             return new RandomResponse
@@ -45,7 +45,7 @@ namespace LocalRestAPI
         }
 
         [GetRoute("/api/sample/status")]
-        public StatusResponse GetStatus()
+        public static StatusResponse GetStatus()
         {
             return new StatusResponse
             {
@@ -63,7 +63,7 @@ namespace LocalRestAPI
 
     {
         [GetRoute("/api/unity/scene")]
-        public SceneInfo GetActiveScene()
+        public static SceneInfo GetActiveScene()
 
 
         {
@@ -102,7 +102,7 @@ namespace LocalRestAPI
 
 
         [GetRoute("/api/unity/objects")]
-        public ObjectList GetObjectsInScene()
+        public static ObjectList GetObjectsInScene()
 
         {
             // 在编辑器模式下安全地获取对象信息
@@ -170,7 +170,7 @@ namespace LocalRestAPI
 
 
         [PostRoute("/api/unity/log")]
-        public LogResponse LogMessage(string message, string type = "info")
+        public static LogResponse LogMessage(string message, string type = "info")
 
         {
             switch (type.ToLower())

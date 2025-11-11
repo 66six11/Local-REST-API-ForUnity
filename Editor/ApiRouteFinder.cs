@@ -31,7 +31,7 @@ namespace LocalRestAPI
                              type.Name.Contains("Controller")))
                         {
                             // 检查类中的所有方法
-                            foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+                            foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Static))
                             {
                                 var routeAttr = method.GetCustomAttribute<ApiRouteAttribute>();
                                 if (routeAttr != null)

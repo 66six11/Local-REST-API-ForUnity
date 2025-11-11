@@ -28,7 +28,7 @@ namespace LocalRestAPI.Runtime
 // GET请求属性
 
 
-    [AttributeUsage(AttributeTargets.Method)]
+  
     public class GetRouteAttribute : ApiRouteAttribute
 
 
@@ -43,7 +43,7 @@ namespace LocalRestAPI.Runtime
 // POST请求属性
 
 
-    [AttributeUsage(AttributeTargets.Method)]
+
     public class PostRouteAttribute : ApiRouteAttribute
 
 

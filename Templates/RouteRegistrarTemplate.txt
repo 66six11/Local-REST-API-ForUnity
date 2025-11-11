@@ -5,7 +5,7 @@ namespace LocalRestAPI
     /// <summary>
     /// 预定义的API路由注册器 - 自动从API控制器生成
     /// </summary>
-    public static partial class PredefinedRouteRegistrar
+    public partial static class PredefinedRouteRegistrar
     {
         /// <summary>
         /// 注册所有预定义的API路由
